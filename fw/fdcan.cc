@@ -307,14 +307,21 @@ bool ApplyOverride(bool value, FDCan::Override o) {
 }
 }
 
+bool FDCan::ReadyForSend(){
+  return (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan1_) > 0);
+}
+
 void FDCan::Send(uint32_t dest_id,
                  std::string_view data,
                  const SendOptions& send_options) {
 
   // Abort anything we have started that hasn't finished.
   if (last_tx_request_) {
-    HAL_FDCAN_AbortTxRequest(&hfdcan1_, last_tx_request_);
+    // This causes trouble for DroneCAN messages, which span multiple frames
+    // HAL_FDCAN_AbortTxRequest(&hfdcan1_, last_tx_request_);
   }
+  // Instead, we will wait until the FIFO is ready to accept a new message
+  while (!ReadyForSend()) {}
 
   FDCAN_TxHeaderTypeDef tx_header;
   tx_header.Identifier = dest_id;
@@ -349,14 +356,65 @@ void FDCan::Send(uint32_t dest_id,
 
 bool FDCan::Poll(FDCAN_RxHeaderTypeDef* header,
                  mjlib::base::string_span data) {
-  if (HAL_FDCAN_GetRxMessage(
-          &hfdcan1_, FDCAN_RX_FIFO0, header,
-          reinterpret_cast<uint8_t*>(data.data())) != HAL_OK) {
-    return false;
+  if (Moteus_buf_head == Moteus_buf_tail){
+    PollRaw();
   }
-
-  return true;
+  // If there are moteus messages in the buffer, return the oldest one
+  if (Moteus_buf_head != Moteus_buf_tail){
+    memcpy(header, &Moteus_buf[Moteus_buf_tail].header, sizeof(FDCAN_RxHeaderTypeDef));
+    memcpy(data.data(), Moteus_buf[Moteus_buf_tail].buf, 64);
+    Moteus_buf_tail = (Moteus_buf_tail + 1) % BUF_SIZE;
+    return true;
+  }
+  return false;
 }
+
+void FDCan::PollRaw() {
+  if (HAL_FDCAN_GetRxMessage(
+        &hfdcan1_, FDCAN_RX_FIFO0, &pending_header,
+        pending_buf) != HAL_OK) {
+    return;
+  }
+  // TODO: Currently, we check that the moteus prefix is 0.
+  // We want a better way to distinguish between Moteus and DroneCAN messages
+  if ((pending_header.Identifier & 0x1FFF0000) == 0){
+    // This is a Moteus message
+    // Check if there is room in the buffer
+    if ((Moteus_buf_head + 1) % BUF_SIZE == Moteus_buf_tail){
+      // Buffer is full, drop the oldest message
+      Moteus_buf_tail = (Moteus_buf_tail + 1) % BUF_SIZE;
+    }
+    // Copy the message into the buffer
+    memcpy(Moteus_buf[Moteus_buf_head].buf, pending_buf, 64);
+    memcpy(&Moteus_buf[Moteus_buf_head].header, &pending_header, sizeof(FDCAN_RxHeaderTypeDef));
+    Moteus_buf_head = (Moteus_buf_head + 1) % BUF_SIZE;
+  } else {
+    // Check if there is room in the buffer
+    if ((DroneCAN_buf_head + 1) % BUF_SIZE == DroneCAN_buf_tail){
+      // Buffer is full, drop the oldest message
+      DroneCAN_buf_tail = (DroneCAN_buf_tail + 1) % BUF_SIZE;
+    }
+    // Copy the message into the buffer
+    memcpy(DroneCAN_buf[DroneCAN_buf_head].buf, pending_buf, 8);
+    memcpy(&DroneCAN_buf[DroneCAN_buf_head].header, &pending_header, sizeof(FDCAN_RxHeaderTypeDef));
+    DroneCAN_buf_head = (DroneCAN_buf_head + 1) % BUF_SIZE;
+  }
+}
+
+bool FDCan::PollDroneCAN(FDCAN_RxHeaderTypeDef *header, uint8_t buffer[8]){
+  if (DroneCAN_buf_head == DroneCAN_buf_tail){
+    PollRaw();
+  }
+  // If there are DroneCAN messages in the buffer, return the oldest one
+  if (DroneCAN_buf_head != DroneCAN_buf_tail){
+    memcpy(header, &DroneCAN_buf[DroneCAN_buf_tail].header, sizeof(FDCAN_RxHeaderTypeDef));
+    memcpy(buffer, DroneCAN_buf[DroneCAN_buf_tail].buf, 8);
+    DroneCAN_buf_tail = (DroneCAN_buf_tail + 1) % BUF_SIZE;
+    return true;
+  }
+  return false;
+}
+
 
 void FDCan::RecoverBusOff() {
   hfdcan1_.Instance->CCCR &= ~FDCAN_CCCR_INIT;

@@ -117,8 +117,41 @@ class FDCan {
             std::string_view data,
             const SendOptions& = SendOptions());
 
+  bool ReadyForSend();
+
   /// @return true if a packet was available.
   bool Poll(FDCAN_RxHeaderTypeDef* header, mjlib::base::string_span);
+
+
+  // We want to be able to run both the Moteus protocol and DroneCAN over the same bus.
+  
+  // Poll the CAN interface for new packets
+  void PollRaw();
+
+  // Poll for new DroneCAN packets
+  bool PollDroneCAN(FDCAN_RxHeaderTypeDef *header, uint8_t buffer[8]);
+
+  constexpr static int BUF_SIZE = 16;
+  FDCAN_RxHeaderTypeDef pending_header = {};
+  uint8_t pending_buf[64];
+  struct BufferedDroneCAN {
+    FDCAN_RxHeaderTypeDef header;
+    uint8_t buf[8];
+  };
+  struct BufferedMoteus {
+    FDCAN_RxHeaderTypeDef header;
+    uint8_t buf[64];
+  };
+
+  // Implement ring buffers for DroneCAN and Moteus
+  BufferedDroneCAN DroneCAN_buf[BUF_SIZE];
+  BufferedMoteus Moteus_buf[BUF_SIZE];
+  int DroneCAN_buf_head = 0;
+  int DroneCAN_buf_tail = 0;
+  int Moteus_buf_head = 0;
+  int Moteus_buf_tail = 0;
+
+
 
   void RecoverBusOff();
 
