@@ -1159,6 +1159,7 @@ class BldcServo::Impl {
       }
       case kCurrent:
       case kPosition:
+      case kSinusoidal:
       case kZeroVelocity:
       case kStayWithinBounds: {
         return true;
@@ -1190,6 +1191,7 @@ class BldcServo::Impl {
       case kVoltageDq:
       case kCurrent:
       case kPosition:
+      case kSinusoidal:
       case kZeroVelocity:
       case kStayWithinBounds:
       case kMeasureInductance:
@@ -1234,7 +1236,9 @@ class BldcServo::Impl {
       case kZeroVelocity:
       case kStayWithinBounds:
       case kMeasureInductance:
-      case kBrake: {
+      case kBrake: 
+      case kSinusoidal:
+      {
         switch (status_.mode) {
           case kNumModes: {
             MJ_ASSERT(false);
@@ -1263,11 +1267,12 @@ class BldcServo::Impl {
           case kVoltageDq:
           case kCurrent:
           case kPosition:
+          case kSinusoidal:
           case kZeroVelocity:
           case kStayWithinBounds:
           case kMeasureInductance:
           case kBrake: {
-            if ((data->mode == kPosition || data->mode == kStayWithinBounds) &&
+            if ((data->mode == kPosition || data->mode == kSinusoidal || data->mode == kStayWithinBounds) &&
                 ISR_IsOutsideLimits()) {
               status_.mode = kFault;
               status_.fault = errc::kStartOutsideLimit;
@@ -1349,6 +1354,7 @@ class BldcServo::Impl {
           return false;
         case kCurrent:
         case kPosition:
+        case kSinusoidal:
         case kPositionTimeout:
         case kZeroVelocity:
         case kStayWithinBounds:
@@ -1387,6 +1393,7 @@ class BldcServo::Impl {
         case kBrake:
           return false;
         case kPosition:
+        case kSinusoidal:
         case kPositionTimeout:
         case kZeroVelocity:
         case kStayWithinBounds:
@@ -1450,7 +1457,7 @@ class BldcServo::Impl {
       }
     }
 
-    if ((status_.mode == kPosition || status_.mode == kStayWithinBounds) &&
+    if ((status_.mode == kPosition || status_.mode == kSinusoidal || status_.mode == kStayWithinBounds) &&
         !std::isnan(status_.timeout_s) &&
         status_.timeout_s <= 0.0f) {
       status_.mode = kPositionTimeout;
@@ -1513,6 +1520,10 @@ class BldcServo::Impl {
       }
       case kPosition: {
         ISR_DoPosition(sin_cos, data);
+        break;
+      }
+      case kSinusoidal: {
+        ISR_DoPositionSinusoidal(sin_cos, data);
         break;
       }
       case kPositionTimeout: {
@@ -1921,6 +1932,25 @@ class BldcServo::Impl {
 
     ISR_DoPositionCommon(sin_cos, data, apply_options, data->max_torque_Nm,
                          data->feedforward_Nm, data->velocity);
+  }
+
+   void ISR_DoPositionSinusoidal(const SinCos& sin_cos, CommandData* data) MOTEUS_CCM_ATTRIBUTE {
+    PID::ApplyOptions apply_options;
+    apply_options.kp_scale = data->kp_scale;
+    apply_options.kd_scale = data->kd_scale;
+
+    // Apply sinusoidal velocity
+    float rotor_pos = WrapZeroToTwoPi(position_.position * k2Pi);
+    float sinusoidal_term = data->sinusoidal_amplitude * std::sin(rotor_pos + data->sinusoidal_phase);
+    float sinusoidal_torque_ff = 0.0f;
+    float command_velocity = data->velocity;
+    if (config_.sinusoidal_torque_ff) {
+      sinusoidal_torque_ff = sinusoidal_term*config_.sinusoidal_torque_ff_scale;
+    } else {
+      command_velocity += data->velocity*sinusoidal_term;
+    }
+    ISR_DoPositionCommon(sin_cos, data, apply_options, data->max_torque_Nm,
+                         data->feedforward_Nm+sinusoidal_torque_ff, command_velocity);
   }
 
   void ISR_DoPositionCommon(

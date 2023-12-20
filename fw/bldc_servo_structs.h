@@ -107,6 +107,9 @@ enum BldcServoMode {
   // All phases are pulled to ground.
   kBrake = 15,
 
+  // Sinusoidal command mode
+  kSinusoidal = 16,
+
   kNumModes,
 };
 
@@ -326,6 +329,10 @@ struct BldcServoCommandData {
   // For kMeasureInductance
   int8_t meas_ind_period = 4;
 
+  // Fos kSinusoidal
+  float sinusoidal_amplitude = 0.0f;
+  float sinusoidal_phase = 0.0f;
+
   template <typename Archive>
   void Serialize(Archive* a) {
     a->Visit(MJ_NVP(mode));
@@ -360,6 +367,8 @@ struct BldcServoCommandData {
     a->Visit(MJ_NVP(bounds_min));
     a->Visit(MJ_NVP(bounds_max));
     a->Visit(MJ_NVP(meas_ind_period));
+    a->Visit(MJ_NVP(sinusoidal_amplitude));
+    a->Visit(MJ_NVP(sinusoidal_phase));
   }
 };
 
@@ -556,6 +565,9 @@ struct BldcServoConfig {
   // debug UART at full control rate.
   uint32_t emit_debug = 0;
 
+  bool sinusoidal_torque_ff = false;
+  float sinusoidal_torque_ff_scale = 1.0f;
+
   BldcServoConfig() {
     pid_dq.kp = 0.005f;
     pid_dq.ki = 30.0f;
@@ -609,6 +621,8 @@ struct BldcServoConfig {
     a->Visit(MJ_NVP(velocity_zero_capture_threshold));
     a->Visit(MJ_NVP(timing_fault));
     a->Visit(MJ_NVP(emit_debug));
+    a->Visit(MJ_NVP(sinusoidal_torque_ff));
+    a->Visit(MJ_NVP(sinusoidal_torque_ff_scale));
   }
 
   static float invalid_float() {
@@ -659,6 +673,7 @@ struct IsEnum<moteus::BldcServoMode> {
         { M::kStayWithinBounds, "within" },
         { M::kMeasureInductance, "meas_ind" },
         { M::kBrake, "brake" },
+        { M::kSinusoidal, "sinusoidal" },
       }};
   }
 };

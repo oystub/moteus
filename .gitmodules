@@ -1,0 +1,3 @@
+[submodule "lib/cpp/mjlib"]
+	path = lib/cpp/mjlib
+	url = git@github.com:oystub/mjlib.git
