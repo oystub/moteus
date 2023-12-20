@@ -954,7 +954,7 @@ SwashplatelessController::updateMotor() {
 
     if (rotor_state_.mode == RotorMode::SPINUP || rotor_state_.mode == RotorMode::RUNNING) {
         moteus::BldcServoCommandData bldc_cmd;
-        bldc_cmd.mode = moteus::kPosition;
+        bldc_cmd.mode = moteus::kSinusoidal;
         bldc_cmd.position = std::numeric_limits<float>::quiet_NaN();
         bldc_cmd.accel_limit = cfg.config.mot_max_acc / 60.0f; // rpm/s to rps/s
 
