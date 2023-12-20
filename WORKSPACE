@@ -19,15 +19,25 @@ workspace(name = "com_github_mjbots_moteus")
 BAZEL_VERSION = "5.4.1"
 BAZEL_VERSION_SHA = "5d90515f84b5ee1fd6ec22ee9e83103e77ed1a907ee5eec198fef3a5b45abf13"
 
+
+# We use a local version of mjlib, so we can make changes to it
+local_repository(
+    name = "com_github_mjbots_mjlib",
+    path = "lib/cpp/mjlib",
+)
+
 load("//tools/workspace:default.bzl", "add_default_repositories")
 
 add_default_repositories()
 
+"""
 # Do mjlib.
 load("@com_github_mjbots_mjlib//tools/workspace:default.bzl",
      mjlib_add = "add_default_repositories")
 
 mjlib_add()
+"""
+
 
 # Now bazel-toolchain
 load("@com_github_mjbots_bazel_toolchain//toolchain:deps.bzl", "bazel_toolchain_dependencies")
