@@ -163,6 +163,13 @@ g4_mbed_binary(
         "canard.c",
         "canard_internals.h",
         "canard.h",
+        "swashplateless.h",
+        "swashplateless.cc",
+    ] + glob(["dronecan/include/*.h"]) + glob(["dronecan/src/*.c"]),
+    includes = [
+        "dronecan/include",
+        "canard",
+        ".",
     ],
     deps = MOTEUS_DEPS,
     linker_script = "stm32g474.ld",

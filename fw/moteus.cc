@@ -26,6 +26,8 @@
 #include "mjlib/multiplex/micro_server.h"
 #include "mjlib/multiplex/micro_stream_datagram.h"
 
+#include "swashplateless.h"
+
 #include "fw/board_debug.h"
 #include "fw/clock_manager.h"
 #include "fw/firmware_info.h"
@@ -262,6 +264,9 @@ int main(void) {
       &timer,
       &firmware_info);
 
+  Swashplateless::SwashplatelessController swashplateless_controller(&fdcan, &moteus_controller, serial);
+  swashplateless_controller.initStorage(persistent_config);
+
   BoardDebug board_debug(
       &pool, &command_manager, &telemetry_manager, &multiplex_protocol,
       moteus_controller.bldc_servo());
@@ -299,12 +304,13 @@ int main(void) {
 
         fdcan_micro_server.SetPrefix(can_config.prefix);
       });
-
+  
   persistent_config.Load();
 
   moteus_controller.Start();
   command_manager.AsyncStart();
   multiplex_protocol.Start(moteus_controller.multiplex_server());
+  swashplateless_controller.initCanard();
 
   auto old_time = timer.read_us();
 
@@ -317,6 +323,7 @@ int main(void) {
 #endif
     moteus_controller.Poll();
     multiplex_protocol.Poll();
+    swashplateless_controller.poll();
 
     const auto new_time = timer.read_us();
 
@@ -328,12 +335,12 @@ int main(void) {
     }
 
     if (delta_us >= 1000) {
+      swashplateless_controller.pollMillisecond();
       telemetry_manager.PollMillisecond();
       system_info.PollMillisecond();
       moteus_controller.PollMillisecond();
       board_debug.PollMillisecond();
       system_info.SetCanResetCount(fdcan_micro_server.can_reset_count());
-
       old_time += 1000;
     }
 
