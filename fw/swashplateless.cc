@@ -531,8 +531,8 @@ SwashplatelessController::sendNodeStatus() {
 
     // We send motor mode in the first byte of the vendor specific status
     // code
-    ((int8_t*)&msg.status.vendor_specific_status_code)[0] = (int8_t)rotor_state_.mode;
-    ((int8_t*)&msg.status.vendor_specific_status_code)[1] = 0; // Reserved
+    ((int8_t*)&msg.vendor_specific_status_code)[0] = (int8_t)rotor_state_.mode;
+    ((int8_t*)&msg.vendor_specific_status_code)[1] = 0; // Reserved
 
     uint32_t len = uavcan_protocol_NodeStatus_encode(&msg, buffer);
     static uint8_t transfer_id;
