@@ -129,7 +129,7 @@ struct SwashplatelessPersistentConfig {
     float cal_elv_gain{0};
     float cal_azm_offset_deg{0};
 
-    float dbg_disarm_after{0};
+    uint64_t dbg_disarm_after_us{0};
 
     char name[32]{0};
 };
@@ -246,11 +246,11 @@ class Config {
          {.i = 0},
          {.i = 1}},
         {"DBG_DISARM_AFTER",
-         ParamType::FLOAT32,
-         &config.dbg_disarm_after,
-         {.f = 0},
-         {.f = 0},
-         {.f = 10000}},
+         ParamType::UINT64,
+         &config.dbg_disarm_after_us,
+         {.i = 0},
+         {.i = 0},
+         {.i = 1000000000}},
         {"NAME",
          ParamType::CHAR32,
          &config.name,

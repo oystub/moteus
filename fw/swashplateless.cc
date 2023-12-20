@@ -934,6 +934,13 @@ SwashplatelessController::updateMotor() {
         __attribute__ ((fallthrough));
     }
     case RotorMode::RUNNING: {
+        // If the debug timeout is enabled and expired, we disarm
+        if (cfg.config.dbg_disarm_after_us > 0) {
+            if (micros64() - rotor_state_.start_time_usec >
+                cfg.config.dbg_disarm_after_us) {
+                rotor_state_.mode = RotorMode::IDLE;
+            }
+        }
         // If we have zero throttle, we go to the idle mode
         if (rotor_state_.throttle_input == 0.0f) {
             rotor_state_.mode = RotorMode::IDLE;
