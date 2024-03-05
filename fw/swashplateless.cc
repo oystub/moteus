@@ -492,7 +492,7 @@ SwashplatelessController::shouldAcceptTransfer(
 
 void
 SwashplatelessController::poll() {
-    processTxRx(microsecond_counter_);
+    processTxRx(micros64());
 
     if (canardGetLocalNodeID(&canard_) == CANARD_BROADCAST_NODE_ID){
         if (millis32() >= dna_state_.send_next_node_id_allocation_request_at_ms) {
@@ -505,15 +505,15 @@ void
 SwashplatelessController::pollMillisecond() {
     microsecond_counter_ += 1000;
     updateMotor();
-    if (microsecond_counter_ % 1000000 == 0) {
+    if (micros64() % 1000000 == 0) {
         sendNodeStatus();
         char buf[128];
         snprintf(buf, sizeof(buf), "Motor mode: %d, throttle: %f, azm: %f, elv: %f", (int)rotor_state_.mode, (double)rotor_state_.throttle_input, (double)rotor_state_.azimuth_input, (double)rotor_state_.elevation_input);
         sendLogMessage(cfg.config.name, buf, UAVCAN_PROTOCOL_DEBUG_LOGLEVEL_DEBUG);
     }
-    if (microsecond_counter_ % 100000 == 0) {
-        // Sens ESC status every 100 ms
-        // sendESCStatus();
+    if (millis32() % 100 == 0) {
+        // Send ESC status every 100 ms
+        //sendESCStatus();
     }
 }
 
@@ -522,7 +522,7 @@ SwashplatelessController::sendNodeStatus() {
     uint8_t buffer[UAVCAN_PROTOCOL_GETNODEINFO_RESPONSE_MAX_SIZE];
 
     struct uavcan_protocol_NodeStatus msg;
-    msg.uptime_sec = microsecond_counter_ / 1000000ULL;
+    msg.uptime_sec = millis32() / 1000;
     // TODO: Send actual health and mode
     msg.health = UAVCAN_PROTOCOL_NODESTATUS_HEALTH_OK;
     msg.mode = UAVCAN_PROTOCOL_NODESTATUS_MODE_OPERATIONAL;
@@ -580,7 +580,7 @@ SwashplatelessController::handleGetNodeInfo(CanardInstance *ins,
     struct uavcan_protocol_GetNodeInfoResponse msg;
     memset(&msg, 0, sizeof(msg));
 
-    msg.status.uptime_sec = microsecond_counter_ / 1000000ULL;
+    msg.status.uptime_sec = millis32() / 1000;
 
     // TODO: Send actual health and mode
     msg.status.health = UAVCAN_PROTOCOL_NODESTATUS_HEALTH_OK;
@@ -880,7 +880,6 @@ SwashplatelessController::getUniqueID(uint8_t id[16]) {
 
 bool
 SwashplatelessController::isInputTimeout() {
-    return false;
     auto now = micros64();
     if (cfg.config.esc_cmd_timeout_us) {
         if (now - rotor_state_.last_throttle_input_time_usec >

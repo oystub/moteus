@@ -44,6 +44,7 @@ struct DroneCANParam {
     ParamValue default_value;
     ParamValue min_value;
     ParamValue max_value;
+    // TODO: Scaling/conversion function
 
     template <typename Archive> void Serialize(Archive *a) const {
         switch (type) {
@@ -200,9 +201,9 @@ class Config {
         {"MOT_MAX_ACC",
          ParamType::FLOAT32,
          &config.mot_max_acc,
-         {.f = 60000},
+         {.f = 600000},
          {.f = 0},
-         {.f = 100000}},
+         {.f = 1000000}},
         {"MOT_MAX_ELEV_DEG",
          ParamType::FLOAT32,
          &config.mot_max_elev_deg,
