@@ -25,10 +25,17 @@ def github_archive(name, repo, commit, local_override=None,
     """
 
     if local_override:
-        native.local_repository(
-            name = name,
-            path = local_override,
-        )
+        if "build_file" in kwargs:
+            native.new_local_repository(
+                name = name,
+                path = local_override,
+                build_file = kwargs["build_file"],
+            )
+        else:
+            native.local_repository(
+                name = name,
+                path = local_override,
+            )
     else:
         http_archive(
             name = name,
