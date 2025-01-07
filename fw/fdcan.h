@@ -117,8 +117,12 @@ class FDCan {
             std::string_view data,
             const SendOptions& = SendOptions());
 
+  bool ReadyForSend();
+
   /// @return true if a packet was available.
   bool Poll(FDCAN_RxHeaderTypeDef* header, mjlib::base::string_span);
+
+  bool PollReal(FDCAN_RxHeaderTypeDef* header, uint8_t buffer[64]) ;
 
   void RecoverBusOff();
 

@@ -36,6 +36,8 @@
 #include "fw/system_info.h"
 #include "fw/uuid.h"
 
+#include "fw/dronecan.h"
+
 #if defined(TARGET_STM32G4)
 #include "fw/fdcan.h"
 #include "fw/fdcan_micro_server.h"
@@ -190,7 +192,9 @@ int main(void) {
   // Turn on our power light.
   DigitalOut power_led(g_hw_pins.power_led, 0);
 
-  micro::SizedPool<20000> pool;
+  // We make this static, because we have trouble with stack space running out,
+  // but a lot of .data section space.
+  static micro::SizedPool<20000> pool;
 
   std::optional<HardwareUart> rs485;
   if (g_hw_pins.uart_tx != NC) {
@@ -226,6 +230,11 @@ int main(void) {
 
       return options;
     }());
+
+  static uint8_t canard_memory_pool[4096];
+  // TODO: We use a fixed node id for now, until DNA is implemented
+  DronecanNode dronecan_node{canard_memory_pool, sizeof(canard_memory_pool), &fdcan, 42};
+
   FDCanMicroServer fdcan_micro_server(&fdcan);
   multiplex::MicroServer multiplex_protocol(
       &pool, &fdcan_micro_server,
@@ -318,6 +327,7 @@ int main(void) {
 #endif
     moteus_controller.Poll();
     multiplex_protocol.Poll();
+    dronecan_node.poll();
 
     const auto new_time = timer.read_us();
 
@@ -329,6 +339,11 @@ int main(void) {
     }
 
     if (delta_us >= 1000) {
+      dronecan_node.pollMillisecond();
+      static int count = 0;
+      if (count++ % 1000 == 0) {
+        dronecan_node.sendDummyNodeStatus();
+      }
       telemetry_manager.PollMillisecond();
       system_info.PollMillisecond();
       moteus_controller.PollMillisecond();

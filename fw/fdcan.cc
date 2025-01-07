@@ -312,9 +312,12 @@ void FDCan::Send(uint32_t dest_id,
                  const SendOptions& send_options) {
 
   // Abort anything we have started that hasn't finished.
-  if (last_tx_request_) {
-    HAL_FDCAN_AbortTxRequest(&hfdcan1_, last_tx_request_);
-  }
+  //if (last_tx_request_) {
+    // This causes trouble for DroneCAN messages, which span multiple frames
+    // HAL_FDCAN_AbortTxRequest(&hfdcan1_, last_tx_request_);
+  //}
+  // Instead, we will wait until the FIFO is ready to accept a new message
+  while (!ReadyForSend()) {}
 
   FDCAN_TxHeaderTypeDef tx_header;
   tx_header.Identifier = dest_id;
@@ -349,6 +352,9 @@ void FDCan::Send(uint32_t dest_id,
 
 bool FDCan::Poll(FDCAN_RxHeaderTypeDef* header,
                  mjlib::base::string_span data) {
+  // TODO: Currently, we disable the moteus from receiving messages
+  // so that it doesn't interfere with the DroneCAN messages
+  return false;
   if (HAL_FDCAN_GetRxMessage(
           &hfdcan1_, FDCAN_RX_FIFO0, header,
           reinterpret_cast<uint8_t*>(data.data())) != HAL_OK) {
@@ -356,6 +362,11 @@ bool FDCan::Poll(FDCAN_RxHeaderTypeDef* header,
   }
 
   return true;
+}
+
+// Temporary function used by DroneCAN to poll for messages
+bool FDCan::PollReal(FDCAN_RxHeaderTypeDef* header, uint8_t buffer[64]) {
+  return HAL_FDCAN_GetRxMessage(&hfdcan1_, FDCAN_RX_FIFO0, header, buffer) == HAL_OK;
 }
 
 void FDCan::RecoverBusOff() {
@@ -393,4 +404,8 @@ int FDCan::ParseDlc(uint32_t dlc_code) {
   return 0;
 }
 
+bool FDCan::ReadyForSend(){
+  return (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan1_) > 0);
 }
+}
+
