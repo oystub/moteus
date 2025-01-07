@@ -29,6 +29,11 @@ load("@com_github_mjbots_mjlib//tools/workspace:default.bzl",
 
 mjlib_add()
 
+# Libcanard
+load("//tools/workspace/libcanard:repository.bzl", "libcanard_repository")
+libcanard_repository(name = "com_github_oystub_libcanard")
+
+
 # Now bazel-toolchain
 load("@com_github_mjbots_bazel_toolchain//toolchain:deps.bzl", "bazel_toolchain_dependencies")
 bazel_toolchain_dependencies()

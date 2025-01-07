@@ -22,6 +22,7 @@ COPTS = [
     "-Werror",
     "-Wdouble-promotion",
     "-gdwarf-4",
+    "-DDRONECAN_CXX_WRAPPERS",
 ]
 
 cc_library(
@@ -140,6 +141,7 @@ MOTEUS_SOURCES = [
 MOTEUS_DEPS = [
     ":common",
     ":git_info",
+    "@com_github_oystub_libcanard//:libcanard",
     "@com_github_mjbots_mjlib//mjlib/base:assert",
     "@com_github_mjbots_mjlib//mjlib/base:inplace_function",
     "@com_github_mjbots_mjlib//mjlib/base:windowed_average",
@@ -163,6 +165,9 @@ g4_mbed_binary(
         "fdcan.h",
         "fdcan.cc",
         "fdcan_micro_server.h",
+    ] + glob(["dronecan/include/*.h"]) + glob(["dronecan/src/*.c"]),
+    includes = [
+        "dronecan/include",
     ],
     deps = MOTEUS_DEPS,
     linker_script = "stm32g474.ld",
