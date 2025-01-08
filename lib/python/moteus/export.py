@@ -32,6 +32,7 @@ from moteus.fdcanusb import Fdcanusb
 from moteus.router import Router
 from moteus.transport import Transport
 from moteus.pythoncan import PythonCan
+from moteus.dronecan import DronecanTransport
 from moteus.moteus import (
     CommandError,
     Controller, Register, Mode, QueryResolution, PositionResolution, Stream,

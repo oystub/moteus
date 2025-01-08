@@ -235,9 +235,8 @@ int main(void) {
   // TODO: We use a fixed node id for now, until DNA is implemented
   DronecanNode dronecan_node{canard_memory_pool, sizeof(canard_memory_pool), &fdcan, 42};
 
-  FDCanMicroServer fdcan_micro_server(&fdcan);
   multiplex::MicroServer multiplex_protocol(
-      &pool, &fdcan_micro_server,
+      &pool, &dronecan_node,
       []() {
         multiplex::MicroServer::Options options;
         options.max_tunnel_streams = 3;
@@ -285,7 +284,7 @@ int main(void) {
 
   persistent_config.Register(
       "can", &can_config,
-      [&can_config, &fdcan, &fdcan_micro_server, &old_can_config]() {
+      [&can_config, &fdcan, &old_can_config]() {
         // We only update our config if it has actually changed.
         // Re-initializing the CAN-FD controller can cause packets to
         // be lost, so don't do it unless actually necessary.
@@ -306,8 +305,6 @@ int main(void) {
         filter_config.global_std_action = FDCan::FilterAction::kAccept;
         filter_config.global_ext_action = FDCan::FilterAction::kReject;
         fdcan.ConfigureFilters(filter_config);
-
-        fdcan_micro_server.SetPrefix(can_config.prefix);
       });
 
   persistent_config.Load();
@@ -322,9 +319,7 @@ int main(void) {
     if (rs485) {
       rs485->Poll();
     }
-#if defined(TARGET_STM32G4)
-    fdcan_micro_server.Poll();
-#endif
+    dronecan_node.poll();
     moteus_controller.Poll();
     multiplex_protocol.Poll();
     dronecan_node.poll();
@@ -348,7 +343,6 @@ int main(void) {
       system_info.PollMillisecond();
       moteus_controller.PollMillisecond();
       board_debug.PollMillisecond();
-      system_info.SetCanResetCount(fdcan_micro_server.can_reset_count());
 
       old_time += 1000;
     }

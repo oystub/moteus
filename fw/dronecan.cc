@@ -44,54 +44,63 @@ void CanardInterface::process(uint32_t duration_ms)
     if (status.BusOff) {
         this->can->RecoverBusOff();
     }
+    
+    // Loop through multiple times to 
+    for (int i = 0; i < 10; i++) {
+        bool done = true;
+        // Send any pending transfers
+        for (const CanardCANFrame* txf = nullptr; (txf = canardPeekTxQueue(&this->canard)) != nullptr;) {
+            done = false;
+            if (!this->can->ReadyForSend()) {
+                break;
+            }
 
-    // Send any pending transfers
-    for (const CanardCANFrame* txf = nullptr; (txf = canardPeekTxQueue(&this->canard)) != nullptr;) {
-        if (!this->can->ReadyForSend()) {
-            break;
+            std::string_view str(reinterpret_cast<const char*>(txf->data), txf->data_len);
+
+            moteus::FDCan::SendOptions send_options;
+            send_options.bitrate_switch = moteus::FDCan::Override::kDisable;
+            send_options.fdcan_frame    = moteus::FDCan::Override::kDisable;
+            send_options.remote_frame   = moteus::FDCan::Override::kDisable;
+            send_options.extended_id    = moteus::FDCan::Override::kRequire;
+
+            this->can->Send(txf->id, str, send_options);
+            canardPopTxQueue(&this->canard);
         }
 
-        std::string_view str(reinterpret_cast<const char*>(txf->data), txf->data_len);
+        // Process incoming frame
+        const bool got_data = this->can->PollReal(&rx_header, rx_data);
+        if (got_data) {
+            done = false;
+            CanardCANFrame frame{};
+            frame.id = rx_header.Identifier;
+            frame.id &= 0x1FFFFFFF;
 
-        moteus::FDCan::SendOptions send_options;
-        send_options.bitrate_switch = moteus::FDCan::Override::kDisable;
-        send_options.fdcan_frame    = moteus::FDCan::Override::kDisable;
-        send_options.remote_frame   = moteus::FDCan::Override::kDisable;
-        send_options.extended_id    = moteus::FDCan::Override::kRequire;
+            if (rx_header.RxFrameType == FDCAN_REMOTE_FRAME) {
+                frame.id |= CANARD_CAN_FRAME_RTR;
+            }
+            if (rx_header.ErrorStateIndicator == FDCAN_ESI_ACTIVE) {
+                frame.id |= CANARD_CAN_FRAME_ERR;
+            }
+            if (rx_header.IdType == FDCAN_EXTENDED_ID) {
+                frame.id |= CANARD_CAN_FRAME_EFF;
+            }
 
-        this->can->Send(txf->id, str, send_options);
-        canardPopTxQueue(&this->canard);
-    }
-
-    // Process incoming frame
-    const bool got_data = this->can->PollReal(&rx_header, rx_data);
-    if (got_data) {
-        CanardCANFrame frame{};
-        frame.id = rx_header.Identifier;
-        frame.id &= 0x1FFFFFFF;
-
-        if (rx_header.RxFrameType == FDCAN_REMOTE_FRAME) {
-            frame.id |= CANARD_CAN_FRAME_RTR;
-        }
-        if (rx_header.ErrorStateIndicator == FDCAN_ESI_ACTIVE) {
-            frame.id |= CANARD_CAN_FRAME_ERR;
-        }
-        if (rx_header.IdType == FDCAN_EXTENDED_ID) {
+            // Force EFF usage, remove ERR/RTR
             frame.id |= CANARD_CAN_FRAME_EFF;
+            frame.id &= ~(CANARD_CAN_FRAME_ERR | CANARD_CAN_FRAME_RTR);
+
+            frame.iface_id = 0;
+
+            size_t data_len = std::min(moteus::FDCan::ParseDlc(rx_header.DataLength), int{8});
+            frame.data_len = static_cast<uint8_t>(data_len);
+            memcpy(frame.data, rx_data, data_len);
+
+            canardHandleRxFrame(&this->canard, &frame, duration_ms);
+
+            if (done){
+                break;
+            }
         }
-
-        // Force EFF usage, remove ERR/RTR
-        frame.id |= CANARD_CAN_FRAME_EFF;
-        frame.id &= ~(CANARD_CAN_FRAME_ERR | CANARD_CAN_FRAME_RTR);
-
-        frame.iface_id = 0;
-
-        size_t data_len = std::min(moteus::FDCan::ParseDlc(rx_header.DataLength), int{8});
-        frame.data_len = static_cast<uint8_t>(data_len);
-        memcpy(frame.data, rx_data, data_len);
-
-        auto err = canardHandleRxFrame(&this->canard, &frame, duration_ms);
-        (void)err;  // Ignored in this example
     }
 }
 
@@ -243,8 +252,74 @@ void DronecanNode::handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, 
 
 void DronecanNode::handle_tunnel_Broadcast(const CanardRxTransfer& transfer, const uavcan_tunnel_Broadcast& req)
 {
-    // TODO: Implementation
-    (void)transfer;
-    (void)req;
+    if (!current_read_header_) { 
+        return; 
+    }
+
+    if (req.buffer.len < 2) {
+        // Not enough data for source and destination
+        return;
+    }
+
+    // TODO: Check protocol and channel ID
+
+    // Source and destination are the first two bytes
+    current_read_header_->source = req.buffer.data[0];
+    current_read_header_->destination = req.buffer.data[1];
+    // Remaining bytes are the data
+    current_read_header_->size = req.buffer.len - 2;
+    memcpy(current_read_data_.data(), req.buffer.data + 2, current_read_header_->size);
+
+    auto copy = current_read_callback_;
+    auto bytes = current_read_header_->size;
+
+    current_read_callback_ = {};
+    current_read_header_ = {};
+    current_read_data_ = {};
+
+    copy(mjlib::micro::error_code(), bytes);
     return;
+}
+
+constexpr mjlib::multiplex::MicroDatagramServer::Properties DronecanNode::properties() const {
+    mjlib::multiplex::MicroDatagramServer::Properties properties{
+        // We reserve 2 bytes for source and destination
+        .max_size = sizeof(decltype(uavcan_tunnel_Broadcast::buffer.data)) - 2
+    };
+    
+    return properties;
+}
+
+void DronecanNode::AsyncRead(Header* header,
+                           const mjlib::base::string_span& data,
+                           const mjlib::micro::SizeCallback& callback){
+    MJ_ASSERT(!current_read_callback_);
+    current_read_callback_ = callback;
+    current_read_data_ = data;
+    current_read_header_ = header;
+}
+void DronecanNode::AsyncWrite(const Header& header,
+                            const std::string_view& data,
+                            const Header& query_header,
+                            const mjlib::micro::SizeCallback& callback){
+    // We don't preserve BRS or FD flags, as they don't matter
+    // when we tunnel through DroneCAN.
+    uavcan_tunnel_Broadcast broadcast_msg{};
+    broadcast_msg.protocol.protocol = UAVCAN_TUNNEL_PROTOCOL_UNDEFINED;
+    broadcast_msg.channel_id = 0; // TODO: Set channel ID
+
+    if (data.size() > static_cast<size_t>(properties().max_size)) {
+      callback(mjlib::micro::error_code(), 0);
+      return;
+    }
+    // First two bytes are source and destination
+    broadcast_msg.buffer.data[0] = 0;
+    broadcast_msg.buffer.data[1] = 3;
+    // Remaining bytes are the data
+    std::memcpy(broadcast_msg.buffer.data + 2, data.data(), data.size());
+    broadcast_msg.buffer.len = data.size() + 2;
+
+    const bool success = tunnel_pub.broadcast(broadcast_msg);
+
+    callback(mjlib::micro::error_code(), success ? data.size() : 0);
 }

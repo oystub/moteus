@@ -25,6 +25,7 @@ from . import multiplex as mp
 from . import command as cmd
 from . import fdcanusb
 from . import pythoncan
+from . import dronecan
 
 import moteus.reader
 
@@ -91,10 +92,42 @@ class PythonCanFactory:
         return pythoncan.PythonCan(**kwargs)
 
 
+class DronecanTransportFactory:
+    PRIORITY = 12
+
+    name = 'dronecan'
+
+    def add_args(self, parser):
+        parser.add_argument('--uri', type=str, metavar='CHAN',
+                            help='pythoncan "channel" (default: vcan0)')
+        parser.add_argument('--bitrate', type=int, metavar='BITRATE',
+                            help='bitrate in bits per second (default: 1000000)')
+        parser.add_argument('--node-id', type=int, metavar='ID',
+                            help='node ID')
+
+    def is_args_set(self, args):
+        return args and (args.can_iface or args.can_chan or args.node_id)
+
+    def __call__(self, args):
+        kwargs = {}
+        if args:
+            if args.bitrate:
+                kwargs['bitrate'] = args.bitrate
+            else:
+                kwargs['bitrate'] = 1000000
+            if args.node_id:
+                kwargs['node_id'] = args.node_id
+            else:
+                kwargs['node_id'] = 101
+            if not args.uri:
+                args.uri = 'vcan0'
+        return dronecan.DronecanTransport(args.uri, **kwargs)
+
 '''External callers may insert additional factories into this list.'''
 TRANSPORT_FACTORIES = [
     FdcanusbFactory(),
     PythonCanFactory(),
+    DronecanTransportFactory(),
 ] + [ep.load()() for ep in
      importlib_metadata.entry_points().select(group='moteus.transports')]
 
@@ -132,6 +165,7 @@ def get_singleton_transport(args=None):
     errors = []
     for factory in to_try:
         try:
+            print(args)
             maybe_result = factory(args)
             break
         except Exception as e:

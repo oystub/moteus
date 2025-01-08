@@ -23,6 +23,7 @@
 
 // Motrus specific
 #include "fdcan.h"
+#include "mjlib/multiplex/micro_datagram_server.h"
 
 class DronecanNode;  // Forward declaration
 
@@ -62,7 +63,7 @@ private:
     uint8_t rx_data[64];
 };
 
-class DronecanNode
+class DronecanNode : public mjlib::multiplex::MicroDatagramServer
 {
 public:
     DronecanNode(uint8_t* memory_pool, size_t memory_pool_size, moteus::FDCan* can, uint8_t node_id = 0);
@@ -70,6 +71,15 @@ public:
     void sendDummyNodeStatus();
     void poll();
     void pollMillisecond();
+
+    constexpr mjlib::multiplex::MicroDatagramServer::Properties properties() const override;
+    void AsyncRead(Header* header,
+                           const mjlib::base::string_span& data,
+                           const mjlib::micro::SizeCallback& callback) override;
+    void AsyncWrite(const Header& header,
+                            const std::string_view& data,
+                            const Header& query_header,
+                            const mjlib::micro::SizeCallback& callback) override;
 
 private:
     void sendLogMessage(const char* source, const char* text, uint8_t level);
@@ -112,5 +122,8 @@ private:
         this, &DronecanNode::handle_tunnel_Broadcast};
     Canard::Subscriber<uavcan_tunnel_Broadcast> tunnel_sub{
         tunnel_broadcast_cb, 0};
+    mjlib::micro::SizeCallback current_read_callback_;
+    Header* current_read_header_ = nullptr;
+    mjlib::base::string_span current_read_data_;
 };
 
