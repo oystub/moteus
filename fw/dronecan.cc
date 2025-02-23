@@ -45,15 +45,15 @@ void CanardInterface::process(uint32_t duration_ms)
         this->can->RecoverBusOff();
     }
     
-    // Loop through multiple times to 
-    for (int i = 0; i < 10; i++) {
+    // Break after 20 iterations to allow some time for other tasks during heavy load
+    for (int i = 0; i < 20; i++) {
         bool done = true;
         // Send any pending transfers
         for (const CanardCANFrame* txf = nullptr; (txf = canardPeekTxQueue(&this->canard)) != nullptr;) {
-            done = false;
             if (!this->can->ReadyForSend()) {
                 break;
             }
+            done = false;
 
             std::string_view str(reinterpret_cast<const char*>(txf->data), txf->data_len);
 
@@ -96,10 +96,9 @@ void CanardInterface::process(uint32_t duration_ms)
             memcpy(frame.data, rx_data, data_len);
 
             canardHandleRxFrame(&this->canard, &frame, duration_ms);
-
-            if (done){
-                break;
-            }
+        }
+        if (done){
+            break;
         }
     }
 }
