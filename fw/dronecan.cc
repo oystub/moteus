@@ -312,8 +312,8 @@ void DronecanNode::AsyncWrite(const Header& header,
       return;
     }
     // First two bytes are source and destination
-    broadcast_msg.buffer.data[0] = 0;
-    broadcast_msg.buffer.data[1] = 3;
+    broadcast_msg.buffer.data[0] = 3; // Todo: set correct
+    broadcast_msg.buffer.data[1] = 0;
     // Remaining bytes are the data
     std::memcpy(broadcast_msg.buffer.data + 2, data.data(), data.size());
     broadcast_msg.buffer.len = data.size() + 2;
