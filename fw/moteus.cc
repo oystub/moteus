@@ -194,7 +194,7 @@ int main(void) {
 
   // We make this static, because we have trouble with stack space running out,
   // but a lot of .data section space.
-  static micro::SizedPool<20000> pool;
+  static micro::SizedPool<30000> pool;
 
   std::optional<HardwareUart> rs485;
   if (g_hw_pins.uart_tx != NC) {
@@ -231,9 +231,8 @@ int main(void) {
       return options;
     }());
 
-  static uint8_t canard_memory_pool[4096];
   // TODO: We use a fixed node id for now, until DNA is implemented
-  DronecanNode dronecan_node{canard_memory_pool, sizeof(canard_memory_pool), &fdcan, 42};
+  DronecanNode dronecan_node{&pool, &fdcan, 42};
 
   multiplex::MicroServer multiplex_protocol(
       &pool, &dronecan_node,
@@ -254,6 +253,7 @@ int main(void) {
   micro::PersistentConfig persistent_config(
       pool, command_manager, flash_interface, micro_output_buffer);
 
+  dronecan_node.RegisterPersistentConfig(&persistent_config);
   SystemInfo system_info(pool, telemetry_manager);
   FirmwareInfo firmware_info(pool, telemetry_manager,
                              kMoteusFirmwareVersion, MOTEUS_MODEL_NUMBER);

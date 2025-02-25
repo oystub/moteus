@@ -7,13 +7,15 @@ DEFINE_TRANSFER_OBJECT_HEADS();
 /*
  * CanardInterface
  */
-CanardInterface::CanardInterface(uint8_t* memory_pool, size_t memory_pool_size, moteus::FDCan* can)
-    : Canard::Interface(0)
+CanardInterface::CanardInterface(mjlib::micro::Pool* pool, const size_t reserved_memory_size, moteus::FDCan* can)
+    : Canard::Interface(0), can(can), pool_(pool)
 {
+    this->memory_pool = static_cast<uint8_t*>(pool->Allocate(reserved_memory_size, alignof(uint8_t)));
+
     this->can = can;
     canardInit(&this->canard,
                memory_pool,
-               memory_pool_size,
+               reserved_memory_size,
                onTransferReceived,
                shouldAcceptTransfer,
                this);
@@ -145,10 +147,17 @@ void CanardInterface::set_node_id(uint8_t node_id)
 /*
  * DronecanNode
  */
-DronecanNode::DronecanNode(uint8_t* memory_pool, size_t memory_pool_size, moteus::FDCan* can, uint8_t node_id)
-    : canard_iface(memory_pool, memory_pool_size, can)
+DronecanNode::DronecanNode(mjlib::micro::Pool* pool, moteus::FDCan* can, uint8_t node_id)
+    : canard_iface(pool, 4096, can), pool_(pool)
 {
     canard_iface.set_node_id(node_id);
+
+
+
+    param_manager_.registerParam(
+        mjlib::micro::PoolPtr<DroneCanParamMoteus<int64_t>>(
+            pool, &persistent_config_, "MOTEUS_ID", "id.id", 1, 1, 127).get()
+    );
 }
 
 uint32_t DronecanNode::millis32() const
@@ -235,17 +244,29 @@ void DronecanNode::sendLogMessage(const char* source, const char* text, uint8_t 
 
 void DronecanNode::handle_param_GetSet(const CanardRxTransfer& transfer, const uavcan_protocol_param_GetSetRequest& req)
 {
-    // TODO: Implementation
-    (void)transfer;
-    (void)req;
+    auto res = param_manager_.getSet(req);
+
+    this->param_server.respond(transfer, res);
+
     return;
 }
 
 void DronecanNode::handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, const uavcan_protocol_param_ExecuteOpcodeRequest& req)
 {
-    // TODO: Implementation
-    (void)transfer;
-    (void)req;
+    uavcan_protocol_param_ExecuteOpcodeResponse res{};
+    res.ok = false;
+
+    if (req.opcode == UAVCAN_PROTOCOL_PARAM_EXECUTEOPCODE_REQUEST_OPCODE_ERASE) {
+        param_manager_.ResetAll();
+        res.ok = true;
+    } else if (req.opcode == UAVCAN_PROTOCOL_PARAM_EXECUTEOPCODE_REQUEST_OPCODE_SAVE) {
+        if (persistent_config_ != nullptr) {
+            persistent_config_->Write();
+            res.ok = true;
+        }
+    }
+
+    this->param_opcode_server.respond(transfer, res);
     return;
 }
 
@@ -312,7 +333,7 @@ void DronecanNode::AsyncWrite(const Header& header,
       return;
     }
     // First two bytes are source and destination
-    broadcast_msg.buffer.data[0] = 3; // Todo: set correct
+    broadcast_msg.buffer.data[0] = 1; // TODO: Set correct instance number
     broadcast_msg.buffer.data[1] = 0;
     // Remaining bytes are the data
     std::memcpy(broadcast_msg.buffer.data + 2, data.data(), data.size());
@@ -322,3 +343,12 @@ void DronecanNode::AsyncWrite(const Header& header,
 
     callback(mjlib::micro::error_code(), success ? data.size() : 0);
 }
+
+/* I want a DroneCAN Visitor pattern! 
+
+void Serialize(Archive* a) {
+
+a->Visit(MJ_DC("MOTEUS_ID", &id.id, 1, 1, 127));
+
+
+*/

@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <array>
 
 // Canard base API
 #include <canard.h>
@@ -21,9 +22,14 @@
 #include <uavcan.protocol.debug.LogMessage.h>
 #include <uavcan.tunnel.Broadcast.h>
 
+// Dronecan functions
+#include "dronecan_param.h"
+
 // Motrus specific
 #include "fdcan.h"
+#include "mjlib/micro/persistent_config.h"
 #include "mjlib/multiplex/micro_datagram_server.h"
+#include "mjlib/micro/pool_ptr.h"
 
 class DronecanNode;  // Forward declaration
 
@@ -32,7 +38,7 @@ class CanardInterface : public Canard::Interface
     friend class DronecanNode;
 
 public:
-    CanardInterface(uint8_t* memory_pool, size_t memory_pool_size, moteus::FDCan* can);
+    CanardInterface(mjlib::micro::Pool* pool, const size_t reserved_memory_size, moteus::FDCan* can);
 
     bool broadcast(const Canard::Transfer& bcast_transfer) override;
     bool request(uint8_t destination_node_id, const Canard::Transfer& req_transfer) override;
@@ -55,6 +61,7 @@ private:
     CanardInstance canard;
     CanardTxTransfer tx_transfer;
     moteus::FDCan* can;
+    mjlib::micro::Pool* pool_;
 
 private:
     void populateTxTransfer(const Canard::Transfer& transfer);
@@ -66,7 +73,7 @@ private:
 class DronecanNode : public mjlib::multiplex::MicroDatagramServer
 {
 public:
-    DronecanNode(uint8_t* memory_pool, size_t memory_pool_size, moteus::FDCan* can, uint8_t node_id = 0);
+    DronecanNode(mjlib::micro::Pool* pool, moteus::FDCan* can, uint8_t node_id = 0);
 
     void sendDummyNodeStatus();
     void poll();
@@ -80,6 +87,8 @@ public:
                             const std::string_view& data,
                             const Header& query_header,
                             const mjlib::micro::SizeCallback& callback) override;
+
+    void RegisterPersistentConfig(mjlib::micro::PersistentConfig* config) { persistent_config_ = config; }
 
 private:
     void sendLogMessage(const char* source, const char* text, uint8_t level);
@@ -97,6 +106,9 @@ private:
 
     uavcan_protocol_NodeStatus node_status_msg;
     CanardInterface canard_iface;
+    DroneCanParamManager param_manager_;
+    mjlib::micro::PersistentConfig* persistent_config_{nullptr};
+    mjlib::micro::Pool* pool_;
 
     // Status and logging
     Canard::Publisher<uavcan_protocol_NodeStatus> node_status_pub{canard_iface};
@@ -126,4 +138,3 @@ private:
     Header* current_read_header_ = nullptr;
     mjlib::base::string_span current_read_data_;
 };
-
