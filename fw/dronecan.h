@@ -24,6 +24,8 @@
 
 // Dronecan functions
 #include "dronecan_param.h"
+#include "dronecan_param.h"
+#include "dronecan_param_store.h"
 
 // Motrus specific
 #include "fdcan.h"
@@ -63,7 +65,6 @@ private:
     moteus::FDCan* can;
     mjlib::micro::Pool* pool_;
 
-private:
     void populateTxTransfer(const Canard::Transfer& transfer);
 
     FDCAN_RxHeaderTypeDef rx_header;
@@ -72,8 +73,10 @@ private:
 
 class DronecanNode : public mjlib::multiplex::MicroDatagramServer
 {
+private:
+    class Config;
 public:
-    DronecanNode(mjlib::micro::Pool* pool, moteus::FDCan* can, uint8_t node_id = 0);
+    DronecanNode(mjlib::micro::Pool* pool, moteus::FDCan* can, DronecanParamStore* param_store, uint8_t node_id = 0);
 
     void sendDummyNodeStatus();
     void poll();
@@ -90,7 +93,26 @@ public:
 
     void RegisterPersistentConfig(mjlib::micro::PersistentConfig* config) { persistent_config_ = config; }
 
+    Config* config() { return &config_; }
+
 private:
+    struct Config {
+        uint8_t node_id = 0;
+        bool dna = false;
+
+        template <typename Store>
+        void RegisterParameters(Store& store) {
+            DRONECAN_PARAMETER(DC_NODE_ID, node_id, 0, 0, 127);
+            DRONECAN_PARAMETER(DC_DNA, dna, 1);
+        }
+
+        template <typename Archive>
+        void Serialize(Archive* a) {
+            a->Visit(MJ_NVP(node_id));
+            a->Visit(MJ_NVP(dna));
+        }
+    };
+
     void sendLogMessage(const char* source, const char* text, uint8_t level);
 
     // Handlers
@@ -106,9 +128,10 @@ private:
 
     uavcan_protocol_NodeStatus node_status_msg;
     CanardInterface canard_iface;
-    DroneCanParamManager param_manager_;
     mjlib::micro::PersistentConfig* persistent_config_{nullptr};
     mjlib::micro::Pool* pool_;
+    DronecanParamStore* param_store_;
+    Config config_;
 
     // Status and logging
     Canard::Publisher<uavcan_protocol_NodeStatus> node_status_pub{canard_iface};

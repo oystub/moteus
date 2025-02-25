@@ -147,17 +147,11 @@ void CanardInterface::set_node_id(uint8_t node_id)
 /*
  * DronecanNode
  */
-DronecanNode::DronecanNode(mjlib::micro::Pool* pool, moteus::FDCan* can, uint8_t node_id)
-    : canard_iface(pool, 4096, can), pool_(pool)
+DronecanNode::DronecanNode(mjlib::micro::Pool* pool, moteus::FDCan* can, DronecanParamStore* param_store, uint8_t node_id)
+    : canard_iface(pool, 4096, can), pool_(pool), param_store_(param_store)
 {
     canard_iface.set_node_id(node_id);
-
-
-
-    param_manager_.registerParam(
-        mjlib::micro::PoolPtr<DroneCanParamMoteus<int64_t>>(
-            pool, &persistent_config_, "MOTEUS_ID", "id.id", 1, 1, 127).get()
-    );
+    param_store_->Register(config_);
 }
 
 uint32_t DronecanNode::millis32() const
@@ -244,8 +238,7 @@ void DronecanNode::sendLogMessage(const char* source, const char* text, uint8_t 
 
 void DronecanNode::handle_param_GetSet(const CanardRxTransfer& transfer, const uavcan_protocol_param_GetSetRequest& req)
 {
-    auto res = param_manager_.getSet(req);
-
+    auto res = param_store_->GetSet(req);
     this->param_server.respond(transfer, res);
 
     return;
@@ -257,7 +250,7 @@ void DronecanNode::handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, 
     res.ok = false;
 
     if (req.opcode == UAVCAN_PROTOCOL_PARAM_EXECUTEOPCODE_REQUEST_OPCODE_ERASE) {
-        param_manager_.ResetAll();
+        param_store_->ResetAll();
         res.ok = true;
     } else if (req.opcode == UAVCAN_PROTOCOL_PARAM_EXECUTEOPCODE_REQUEST_OPCODE_SAVE) {
         if (persistent_config_ != nullptr) {
@@ -343,12 +336,3 @@ void DronecanNode::AsyncWrite(const Header& header,
 
     callback(mjlib::micro::error_code(), success ? data.size() : 0);
 }
-
-/* I want a DroneCAN Visitor pattern! 
-
-void Serialize(Archive* a) {
-
-a->Visit(MJ_DC("MOTEUS_ID", &id.id, 1, 1, 127));
-
-
-*/

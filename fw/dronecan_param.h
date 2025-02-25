@@ -1,231 +1,148 @@
 #pragma once
 
-#include <uavcan.protocol.param.GetSet.h>
-#include "mjlib/micro/persistent_config.h"
-
 #include <string>
 #include <vector>
 #include <optional>
-#include <algorithm>
-#include <cstring>
 #include <functional>
+#include <limits>
+#include <algorithm>
 
+#include <uavcan.protocol.param.GetSet.h>
 
-struct DroneCanParamBase {
-  DroneCanParamBase(const std::string name) : name(name) {}
-  // Dronecan param name, should be max 16 characters to conform with PX4 standards
-  const std::string name;
-  virtual uavcan_protocol_param_GetSetResponse get() = 0;
-  virtual bool set(const uavcan_protocol_param_GetSetRequest&){
-    return false;
-  }
-  virtual void reset() = 0;
-};
-
+/// A templated class for DroneCAN parameters supporting integers, floats, and bools.
 template <typename T>
-class DroneCanParamMoteus : public DroneCanParamBase {
+class Parameter {
 public:
-  DroneCanParamMoteus() = delete;
-  DroneCanParamMoteus(const DroneCanParamMoteus&) = delete;
+    static_assert(std::is_integral_v<T> || std::is_floating_point_v<T> || std::is_same_v<bool, T>,
+                  "Parameter type must be integral, floating point, or boolean.");
 
-  DroneCanParamMoteus(mjlib::micro::PersistentConfig** config, const std::string name, const std::string moteus_name, const T& default_value, const T& min_value, const T& max_value)
-      : DroneCanParamBase(name), moteus_name_(moteus_name), default_value_(default_value), min_value_(min_value), max_value_(max_value), config_(config) {}
+    using PreUpdateCallback = std::function<bool(Parameter<T>&, const T&, T&)>;
+    using PostUpdateCallback = std::function<void(const Parameter<T>&, const T&, const T&)>;
 
-  DroneCanParamMoteus(mjlib::micro::PersistentConfig** config, const std::string name, const std::string moteus_name, const T& default_value)
-      : DroneCanParamBase(name), moteus_name_(moteus_name), default_value_(default_value), config_(config) {}
+    Parameter(const std::string& name, T& value, T default_value = T{},
+              T min_value = std::numeric_limits<T>::lowest(),
+              T max_value = std::numeric_limits<T>::max(),
+              PreUpdateCallback pre_update = nullptr,
+              PostUpdateCallback post_update = nullptr)
+        : name_(name), value_(value), default_value_(default_value),
+          min_value_(min_value), max_value_(max_value),
+          pre_update_(pre_update), post_update_(post_update) {}
 
-  const std::string moteus_name_;
-  std::optional<const T> default_value_;
-  std::optional<const T> min_value_;
-  std::optional<const T> max_value_;
-
-  uavcan_protocol_param_GetSetResponse get() override {
-    uavcan_protocol_param_GetSetResponse response{};
-    memcpy(response.name.data, name.c_str(), std::min(name.size(), sizeof(response.name.data)));
-    response.name.len = name.size();
-
-    setValue(response.value, getMoteusParam());
-    setValue(response.default_value, default_value_);
-    setValue(response.min_value, min_value_);
-    setValue(response.max_value, max_value_);
-    return response;
-  }
-
-  bool set(const uavcan_protocol_param_GetSetRequest& req) override {
-    if (config_ == nullptr || *config_ == nullptr) {
-      return false;
-    }
-
-    auto val = getValue(req.value);
-    if (!val.has_value()) {
-      return false;
-    }
-
-
-    if (min_value_.has_value() && val.value() < min_value_.value()) {
-      return false;
-    }
-    if (max_value_.has_value() && val.value() > max_value_.value()) {
-      return false;
-    }
-
-    // We must serialize the value to a string to store it in the persistent config.
-    return (*config_)->Set(moteus_name_, std::to_string(val.value()));
-  }
-
-  void reset() override {
-    if (config_ == nullptr || *config_ == nullptr) {
-      return;
-    }
-    if (default_value_.has_value()) {
-      (*config_)->Set(moteus_name_, std::to_string(default_value_.value()));
-    }
-  }
-
-
-private:
-  mjlib::micro::PersistentConfig** config_;
-
-  std::optional<T> getMoteusParam() {
-    if (config_ == nullptr || *config_ == nullptr) {
-      return std::nullopt;
-    }
-    // We get the parameter value from the persistent config as a string.
-    std::string param_str = (*config_)->Get(moteus_name_);
-    if (param_str.empty()) {
-      return std::nullopt;
-    }
-    if constexpr(std::is_same_v<T, bool>){
-      return param_str == "1";
-    } else if (std::is_integral_v<T>) {
-      return static_cast<T>(std::stoll(param_str));
-    } else if (std::is_floating_point_v<T>) {
-      return static_cast<T>(std::stof(param_str));
-    } else {
-      return std::nullopt;
-    }
-  }
-
-  static std::optional<T> getValue(const uavcan_protocol_param_Value& field) {
-    if constexpr (std::is_same_v<T, bool>){
-      if (field.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_BOOLEAN_VALUE) {
-        return static_cast<T>(field.boolean_value);
-      } else if (field.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE) {
-        // PX4 uses 0 and 1 for bools
-        if (field.integer_value == 0) {
-          return false;
-        } else if (field.integer_value == 1) {
-          return true;
+    /// Attempts to set the parameter's value, enforcing constraints and calling callbacks.
+    bool Set(T new_value) {
+        if (new_value < min_value_ || new_value > max_value_) {
+            return false;
         }
-      }
-    } else if (std::is_integral_v<T>) {
-      if (field.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE) {
-        return static_cast<T>(field.integer_value);
-      }
-    } else if (std::is_floating_point_v<T>) {
-      if (field.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE) {
-        return static_cast<T>(field.real_value);
-      }
-    }
-    return std::nullopt;
-  }
 
-  static void setValue(uavcan_protocol_param_Value& field, const std::optional<T>& val) {
-    field.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY;
-    if (!val.has_value()) {
-      return;
+        T modified_value = new_value;
+        if (pre_update_ && !pre_update_(*this, value_, modified_value)) {
+            return false; // Pre-update rejected the change
+        }
+
+        T old_value = value_;
+        value_ = modified_value;
+
+        if (post_update_) {
+            post_update_(*this, old_value, modified_value);
+        }
+        return true;
     }
 
-    if constexpr(std::is_same_v<T, bool>){
-      field.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_BOOLEAN_VALUE;
-      field.boolean_value = static_cast<uint8_t>(val.value());
-    } else if (std::is_integral_v<T>) {
-      field.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE;
-      field.integer_value = static_cast<int64_t>(val.value());
-    } else if (std::is_floating_point_v<T>) {
-      field.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE;
-      field.real_value = static_cast<float>(val.value());
-    }
-  }
-
-  static void setValue(uavcan_protocol_param_NumericValue& field, const std::optional<T>& val) {
-    field.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
-    if (!val.has_value()) {
-      return;
-    }
-    if constexpr (std::is_integral_v<T>) {
-      field.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_INTEGER_VALUE;
-      field.integer_value = static_cast<int64_t>(val.value());
-    } else if (std::is_floating_point_v<T>) {
-      field.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_REAL_VALUE;
-      field.real_value = static_cast<float>(val.value());
-    }
-  }
-};
-
-class DroneCanParamManager {
-public:
-  void registerParam(DroneCanParamBase* param) {
-    params_.push_back(param);
-  }
-
-  uavcan_protocol_param_GetSetResponse getSet(const uavcan_protocol_param_GetSetRequest& req) {
-    bool is_set_request = (req.value.union_tag != UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY);
-
-    // Passed param name is not neccessarily null-terminated
-    uint16_t name_len = std::min(static_cast<uint16_t>(req.name.len),
-                                 static_cast<uint16_t>(sizeof(req.name.data)));
-    std::string dronecan_name(reinterpret_cast<const char*>(req.name.data), name_len);
-
-    std::optional<uint16_t> index;
-    if (!dronecan_name.empty()) {
-      index = getIndexByName(dronecan_name);
-    } else {
-      index = req.index;
-    }
-    if (!index.has_value()) {
-      // No parameter found with this name
-      return uavcan_protocol_param_GetSetResponse();
+    bool Set(const uavcan_protocol_param_Value& field) {
+        auto val = getValue(field);
+        if (!val.has_value()) {
+            return false;
+        }
+        return Set(val.value());
     }
 
-    // Look up the parameter by its index
-    auto param_opt = getParamByIndex(index.value());
-    if (!param_opt.has_value()) {
-      // No parameter found with this index
-      return uavcan_protocol_param_GetSetResponse();
+    uavcan_protocol_param_GetSetResponse Get() const {
+        uavcan_protocol_param_GetSetResponse response{};
+        response.name.len = std::min(name_.size(), sizeof(response.name.data));
+        std::copy(name_.begin(), name_.begin() + response.name.len, response.name.data);
+        setValue(response.value, value_);
+        setValue(response.default_value, default_value_);
+        setValue(response.max_value, max_value_);
+        setValue(response.min_value, min_value_);
+        return response;
     }
-    auto param = param_opt.value();
 
-    if (is_set_request) {
-      param->set(req);
+    void Reset() {
+        value_ = default_value_;
     }
 
-    return param->get();
-  }
-
-  void ResetAll() {
-    for (auto param : params_) {
-      param->reset();
-    }
-  }
+    const std::string& GetName() const { return name_; }
+    const T& GetValue() const { return value_; }
+    T GetDefault() const { return default_value_; }
+    T GetMin() const { return min_value_; }
+    T GetMax() const { return max_value_; }
 
 private:
-  std::optional<uint16_t> getIndexByName(const std::string& name) const {
-    for (uint16_t i = 0; i < params_.size(); i++) {
-      if (params_[i]->name == name) {
-        return i;
-      }
-    }
-    return std::nullopt;
-  }
+    std::string name_;
+    T& value_; // Reference to actual parameter storage
+    T default_value_;
+    T min_value_;
+    T max_value_;
+    PreUpdateCallback pre_update_;
+    PostUpdateCallback post_update_;
 
-  std::optional<DroneCanParamBase*> getParamByIndex(uint16_t index) const {
-    if (index < params_.size()) {
-      return params_[index];
+    static std::optional<T> getValue(const uavcan_protocol_param_Value& field) {
+        if constexpr (std::is_same_v<T, bool>){
+            if (field.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_BOOLEAN_VALUE) {
+            return static_cast<T>(field.boolean_value);
+            } else if (field.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE) {
+                // PX4 uses int 0 and 1 for bools
+                if (field.integer_value == 0) {
+                    return false;
+                } else if (field.integer_value == 1) {
+                    return true;
+                }
+            }
+        } else if (std::is_integral_v<T>) {
+            if (field.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE) {
+            return static_cast<T>(field.integer_value);
+            }
+        } else if (std::is_floating_point_v<T>) {
+            if (field.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE) {
+            return static_cast<T>(field.real_value);
+            }
+        }
+        return std::nullopt;
     }
-    return std::nullopt;
-  }
 
-  std::vector<DroneCanParamBase*> params_;
-  mjlib::micro::PersistentConfig* persistent_config_{nullptr};
+    static void setValue(uavcan_protocol_param_Value& field, const std::optional<T>& val) {
+        field.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY;
+        if (!val.has_value()) {
+            return;
+        }
+
+        if constexpr(std::is_same_v<T, bool>){
+            field.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_BOOLEAN_VALUE;
+            field.boolean_value = static_cast<uint8_t>(val.value());
+        } else if (std::is_integral_v<T>) {
+            field.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE;
+            field.integer_value = static_cast<int64_t>(val.value());
+        } else if (std::is_floating_point_v<T>) {
+            field.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE;
+            field.real_value = static_cast<float>(val.value());
+        }
+    }
+    
+    static void setValue(uavcan_protocol_param_NumericValue& field, const std::optional<T>& val) {
+        field.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
+        if (!val.has_value()) {
+            return;
+        }
+        if constexpr (std::is_integral_v<T>) {
+            field.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_INTEGER_VALUE;
+            field.integer_value = static_cast<int64_t>(val.value());
+        } else if (std::is_floating_point_v<T>) {
+            field.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_REAL_VALUE;
+            field.real_value = static_cast<float>(val.value());
+        }
+    }
 };
+
+/// Macro to define a parameter inside a struct
+#define DRONECAN_PARAMETER(name, variable, ...) \
+    store.Register(Parameter<std::decay_t<decltype(variable)>>(#name, variable, ##__VA_ARGS__))

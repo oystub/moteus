@@ -105,6 +105,8 @@ MOTEUS_SOURCES = [
     "cui_amt21.h",
     "dronecan.h",
     "dronecan.cc",
+    "dronecan_param.h",
+    "dronecan_param_store.h",
     "drv8323.h",
     "drv8323.cc",
     "error.cc",
