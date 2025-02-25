@@ -19,7 +19,8 @@ load("//tools/workspace:github_archive.bzl", "github_archive")
 def mjlib_repository(name):
     github_archive(
         name = name,
+        #local_override = "../mjlib",
         repo = "oystub/mjlib",
-        commit = "5f748171645a98b9fe0132bcf8d63f57e186aed7",
-        sha256 = "c455572301a215c836ff5ad67f1de44db629571b64db9fd45fd757699599945b",
+        commit = "baa952b995986e105f1588219cc638272018a082",
+        sha256 = "b314dce1082858abca83417b0e3b8e3a97649681d077a2e792da43e4ad34e571",
     )
