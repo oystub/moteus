@@ -20,6 +20,7 @@
 
 #include "fw/bldc_servo.h"
 #include "fw/clock_manager.h"
+#include "fw/dronecan_param_store.h"
 #include "fw/firmware_info.h"
 #include "fw/millisecond_timer.h"
 #include "fw/system_info.h"
@@ -36,6 +37,7 @@ class MoteusController {
                    mjlib::micro::CommandManager* command_manager,
                    mjlib::micro::TelemetryManager* telemetry_manager,
                    mjlib::multiplex::MicroServer* multiplex_protocol,
+                   DronecanParamStore* param_store,
                    ClockManager*,
                    SystemInfo*,
                    MillisecondTimer*,

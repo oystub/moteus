@@ -16,8 +16,8 @@ public:
     static_assert(std::is_integral_v<T> || std::is_floating_point_v<T> || std::is_same_v<bool, T>,
                   "Parameter type must be integral, floating point, or boolean.");
 
-    using PreUpdateCallback = std::function<bool(Parameter<T>&, const T&, T&)>;
-    using PostUpdateCallback = std::function<void(const Parameter<T>&, const T&, const T&)>;
+    using PreUpdateCallback = std::function<bool(Parameter<T>&, const T&)>;
+    using PostUpdateCallback = std::function<void(const Parameter<T>&, const T&)>;
 
     Parameter(const std::string& name, T& value, T default_value = T{},
               T min_value = std::numeric_limits<T>::lowest(),
@@ -35,7 +35,7 @@ public:
         }
 
         T modified_value = new_value;
-        if (pre_update_ && !pre_update_(*this, value_, modified_value)) {
+        if (pre_update_ && !pre_update_(*this, modified_value)) {
             return false; // Pre-update rejected the change
         }
 
@@ -43,7 +43,7 @@ public:
         value_ = modified_value;
 
         if (post_update_) {
-            post_update_(*this, old_value, modified_value);
+            post_update_(*this, old_value);
         }
         return true;
     }

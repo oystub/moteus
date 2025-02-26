@@ -25,6 +25,8 @@
 #include "mjlib/micro/persistent_config.h"
 #include "mjlib/micro/telemetry_manager.h"
 
+#include "fw/dronecan_param_store.h"
+
 #include "fw/aux_common.h"
 #include "fw/bldc_servo_structs.h"
 #include "fw/ccm.h"
@@ -172,6 +174,12 @@ class MotorPosition {
       a->Visit(MJ_NVP(rotor_to_output_ratio));
       a->Visit(MJ_NVP(rotor_to_output_override));
     }
+
+    template <typename Store>
+      void RegisterParameters(Store& store) {
+        DRONECAN_PARAMETER(MOT_DIR, output.sign, 1, -1, 1,
+        [](auto, auto new_val){return new_val == 1 || new_val == -1;});
+      }
   };
 
   struct SourceStatus {
@@ -296,6 +304,7 @@ class MotorPosition {
 
   MotorPosition(mjlib::micro::PersistentConfig* persistent_config,
                 mjlib::micro::TelemetryManager* telemetry_manager,
+                DronecanParamStore* param_store,
                 const aux::AuxStatus* aux1_status,
                 const aux::AuxStatus* aux2_status,
                 const aux::AuxConfig* aux1_config,
@@ -309,6 +318,7 @@ class MotorPosition {
         "motor", &motor_,
         std::bind(&MotorPosition::HandleConfigUpdate, this));
     telemetry_manager->Register("motor_position", &status_);
+    param_store->Register(config_);
 
     absolute_relative_delta.store(0);
 

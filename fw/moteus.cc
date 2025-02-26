@@ -35,6 +35,7 @@
 #include "fw/moteus_hw.h"
 #include "fw/system_info.h"
 #include "fw/uuid.h"
+#include "fw/dronecan_param_store.h"
 
 #include "fw/dronecan.h"
 
@@ -196,6 +197,8 @@ int main(void) {
   // but a lot of .data section space.
   static micro::SizedPool<30000> pool;
 
+  DronecanParamStore param_store(&pool);
+
   std::optional<HardwareUart> rs485;
   if (g_hw_pins.uart_tx != NC) {
     rs485.emplace(&pool, &timer, []() {
@@ -232,7 +235,7 @@ int main(void) {
     }());
 
   // TODO: We use a fixed node id for now, until DNA is implemented
-  DronecanNode dronecan_node{&pool, &fdcan, 42};
+  DronecanNode dronecan_node{&pool, &fdcan, &param_store, 42};
 
   multiplex::MicroServer multiplex_protocol(
       &pool, &dronecan_node,
@@ -253,7 +256,6 @@ int main(void) {
   micro::PersistentConfig persistent_config(
       pool, command_manager, flash_interface, micro_output_buffer);
 
-  dronecan_node.RegisterPersistentConfig(&persistent_config);
   SystemInfo system_info(pool, telemetry_manager);
   FirmwareInfo firmware_info(pool, telemetry_manager,
                              kMoteusFirmwareVersion, MOTEUS_MODEL_NUMBER);
@@ -265,6 +267,7 @@ int main(void) {
       &command_manager,
       &telemetry_manager,
       &multiplex_protocol,
+      &param_store,
       &clock,
       &system_info,
       &timer,
@@ -306,6 +309,7 @@ int main(void) {
         filter_config.global_ext_action = FDCan::FilterAction::kReject;
         fdcan.ConfigureFilters(filter_config);
       });
+  persistent_config.Register("dronecan", dronecan_node.config(), [](){});
 
   persistent_config.Load();
 
