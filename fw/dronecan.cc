@@ -47,61 +47,53 @@ void CanardInterface::process(uint32_t duration_ms)
         this->can->RecoverBusOff();
     }
     
-    // Break after 20 iterations to allow some time for other tasks during heavy load
-    for (int i = 0; i < 20; i++) {
-        bool done = true;
-        // Send any pending transfers
-        for (const CanardCANFrame* txf = nullptr; (txf = canardPeekTxQueue(&this->canard)) != nullptr;) {
-            if (!this->can->ReadyForSend()) {
-                break;
-            }
-            done = false;
-
-            std::string_view str(reinterpret_cast<const char*>(txf->data), txf->data_len);
-
-            moteus::FDCan::SendOptions send_options;
-            send_options.bitrate_switch = moteus::FDCan::Override::kDisable;
-            send_options.fdcan_frame    = moteus::FDCan::Override::kDisable;
-            send_options.remote_frame   = moteus::FDCan::Override::kDisable;
-            send_options.extended_id    = moteus::FDCan::Override::kRequire;
-
-            this->can->Send(txf->id, str, send_options);
-            canardPopTxQueue(&this->canard);
-        }
-
-        // Process incoming frame
-        const bool got_data = this->can->PollReal(&rx_header, rx_data);
-        if (got_data) {
-            done = false;
-            CanardCANFrame frame{};
-            frame.id = rx_header.Identifier;
-            frame.id &= 0x1FFFFFFF;
-
-            if (rx_header.RxFrameType == FDCAN_REMOTE_FRAME) {
-                frame.id |= CANARD_CAN_FRAME_RTR;
-            }
-            if (rx_header.ErrorStateIndicator == FDCAN_ESI_ACTIVE) {
-                frame.id |= CANARD_CAN_FRAME_ERR;
-            }
-            if (rx_header.IdType == FDCAN_EXTENDED_ID) {
-                frame.id |= CANARD_CAN_FRAME_EFF;
-            }
-
-            // Force EFF usage, remove ERR/RTR
-            frame.id |= CANARD_CAN_FRAME_EFF;
-            frame.id &= ~(CANARD_CAN_FRAME_ERR | CANARD_CAN_FRAME_RTR);
-
-            frame.iface_id = 0;
-
-            size_t data_len = std::min(moteus::FDCan::ParseDlc(rx_header.DataLength), int{8});
-            frame.data_len = static_cast<uint8_t>(data_len);
-            memcpy(frame.data, rx_data, data_len);
-
-            canardHandleRxFrame(&this->canard, &frame, duration_ms);
-        }
-        if (done){
+    // Send any pending transfers
+    for (const CanardCANFrame* txf = nullptr; (txf = canardPeekTxQueue(&this->canard)) != nullptr;) {
+        if (!this->can->ReadyForSend()) {
+            // FIFO is full, wait until next cycle
             break;
         }
+        std::string_view str(reinterpret_cast<const char*>(txf->data), txf->data_len);
+
+        moteus::FDCan::SendOptions send_options;
+        send_options.bitrate_switch = moteus::FDCan::Override::kDisable;
+        send_options.fdcan_frame    = moteus::FDCan::Override::kDisable;
+        send_options.remote_frame   = moteus::FDCan::Override::kDisable;
+        send_options.extended_id    = moteus::FDCan::Override::kRequire;
+
+        this->can->Send(txf->id, str, send_options);
+        tx_count_++;
+        canardPopTxQueue(&this->canard);
+    }
+
+    // Process incoming frames
+    while(this->can->PollReal(&rx_header, rx_data)){
+        rx_count_++;
+        CanardCANFrame frame{};
+        frame.id = rx_header.Identifier;
+        frame.id &= 0x1FFFFFFF;
+
+        if (rx_header.RxFrameType == FDCAN_REMOTE_FRAME) {
+            frame.id |= CANARD_CAN_FRAME_RTR;
+        }
+        if (rx_header.ErrorStateIndicator == FDCAN_ESI_ACTIVE) {
+            frame.id |= CANARD_CAN_FRAME_ERR;
+        }
+        if (rx_header.IdType == FDCAN_EXTENDED_ID) {
+            frame.id |= CANARD_CAN_FRAME_EFF;
+        }
+
+        // Force EFF usage, remove ERR/RTR
+        frame.id |= CANARD_CAN_FRAME_EFF;
+        frame.id &= ~(CANARD_CAN_FRAME_ERR | CANARD_CAN_FRAME_RTR);
+
+        frame.iface_id = 0;
+
+        size_t data_len = std::min(moteus::FDCan::ParseDlc(rx_header.DataLength), int{8});
+        frame.data_len = static_cast<uint8_t>(data_len);
+        memcpy(frame.data, rx_data, data_len);
+
+        canardHandleRxFrame(&this->canard, &frame, duration_ms);
     }
 }
 
@@ -148,7 +140,7 @@ void CanardInterface::set_node_id(uint8_t node_id)
  * DronecanNode
  */
 DronecanNode::DronecanNode(mjlib::micro::Pool* pool, moteus::FDCan* can, DronecanParamStore* param_store, uint8_t node_id)
-    : canard_iface(pool, 4096, can), pool_(pool), param_store_(param_store)
+    : canard_iface(pool, 8192, can), pool_(pool), param_store_(param_store)
 {
     canard_iface.set_node_id(node_id);
     param_store_->Register(config_);
@@ -173,6 +165,8 @@ void DronecanNode::getUniqueID(uint8_t id[16])
 
 void DronecanNode::sendDummyNodeStatus()
 {
+    //TODO canardCleanupStaleTransfers ?
+
     node_status_msg.health = UAVCAN_PROTOCOL_NODESTATUS_HEALTH_OK;
     node_status_msg.mode   = UAVCAN_PROTOCOL_NODESTATUS_MODE_OPERATIONAL;
     node_status_msg.sub_mode = 0;
@@ -244,6 +238,17 @@ void DronecanNode::handle_param_GetSet(const CanardRxTransfer& transfer, const u
     return;
 }
 
+void DronecanNode::handle_GetTransportStats(const CanardRxTransfer& transfer, const uavcan_protocol_GetTransportStatsRequest& req){
+    uavcan_protocol_GetTransportStatsResponse res{};
+
+    auto error_counters = canard_iface.can->ErrorCounters();
+    res.transfer_errors = error_counters.TxErrorCnt + error_counters.RxErrorCnt;
+    res.transfers_tx = canard_iface.tx_count_;
+    res.transfers_rx = canard_iface.rx_count_;
+
+    this->transport_stats_server.respond(transfer, res);
+}
+
 void DronecanNode::handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, const uavcan_protocol_param_ExecuteOpcodeRequest& req)
 {
     uavcan_protocol_param_ExecuteOpcodeResponse res{};
@@ -260,7 +265,6 @@ void DronecanNode::handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, 
     }
 
     this->param_opcode_server.respond(transfer, res);
-    return;
 }
 
 void DronecanNode::handle_tunnel_Broadcast(const CanardRxTransfer& transfer, const uavcan_tunnel_Broadcast& req)

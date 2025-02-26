@@ -20,6 +20,7 @@
 #include <uavcan.protocol.NodeStatus.h>
 #include <uavcan.protocol.GetNodeInfo.h>
 #include <uavcan.protocol.debug.LogMessage.h>
+#include <uavcan.protocol.GetTransportStats.h>
 #include <uavcan.tunnel.Broadcast.h>
 
 // Dronecan functions
@@ -58,11 +59,13 @@ public:
                                      CanardTransferType transfer_type,
                                      uint8_t source_node_id);
 
+    int64_t tx_count_ = 0;
+    int64_t rx_count_ = 0;
+    moteus::FDCan* can;
 private:
     uint8_t* memory_pool;
     CanardInstance canard;
     CanardTxTransfer tx_transfer;
-    moteus::FDCan* can;
     mjlib::micro::Pool* pool_;
 
     void populateTxTransfer(const Canard::Transfer& transfer);
@@ -120,6 +123,7 @@ private:
     void handle_param_GetSet(const CanardRxTransfer& transfer, const uavcan_protocol_param_GetSetRequest& req);
     void handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, const uavcan_protocol_param_ExecuteOpcodeRequest& req);
     void handle_tunnel_Broadcast(const CanardRxTransfer& transfer, const uavcan_tunnel_Broadcast& req);
+    void handle_GetTransportStats(const CanardRxTransfer& transfer, const uavcan_protocol_GetTransportStatsRequest& req);
 
     static void getUniqueID(uint8_t id[16]);
     uint32_t millis32() const;
@@ -150,6 +154,10 @@ private:
         this, &DronecanNode::handle_param_ExecuteOpcode};
     Canard::Server<uavcan_protocol_param_ExecuteOpcodeRequest> param_opcode_server{
         canard_iface, param_executeopcode_req_cb};
+    Canard::ObjCallback<DronecanNode, uavcan_protocol_GetTransportStatsRequest> transport_stats_cb{
+        this, &DronecanNode::handle_GetTransportStats};
+    Canard::Server<uavcan_protocol_GetTransportStatsRequest> transport_stats_server{
+        canard_iface, transport_stats_cb};
 
     // Moteus tunneling over DroneCAN
     Canard::Publisher<uavcan_tunnel_Broadcast> tunnel_pub{canard_iface};

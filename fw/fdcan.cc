@@ -409,3 +409,8 @@ bool FDCan::ReadyForSend(){
 }
 }
 
+FDCAN_ErrorCountersTypeDef FDCan::ErrorCounters() {
+  FDCAN_ErrorCountersTypeDef result;
+  HAL_FDCAN_GetErrorCounters(&hfdcan1_, &result);
+  return result;
+}

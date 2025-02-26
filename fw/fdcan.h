@@ -75,7 +75,7 @@ class FDCan {
 
     FilterConfig filters;
 
-    bool automatic_retransmission = false;
+    bool automatic_retransmission = true;
     bool remote_frame = false;
     bool fdcan_frame = false;
     bool bitrate_switch = false;
@@ -137,6 +137,8 @@ class FDCan {
   Config config() const;
 
   static int ParseDlc(uint32_t dlc_code);
+
+  FDCAN_ErrorCountersTypeDef ErrorCounters();
 
  private:
   void Init();
