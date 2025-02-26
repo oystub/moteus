@@ -407,10 +407,12 @@ int FDCan::ParseDlc(uint32_t dlc_code) {
 bool FDCan::ReadyForSend(){
   return (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan1_) > 0);
 }
-}
 
 FDCAN_ErrorCountersTypeDef FDCan::ErrorCounters() {
   FDCAN_ErrorCountersTypeDef result;
   HAL_FDCAN_GetErrorCounters(&hfdcan1_, &result);
   return result;
 }
+
+}
+
