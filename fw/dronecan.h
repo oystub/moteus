@@ -27,6 +27,7 @@
 #include "dronecan_param.h"
 #include "dronecan_param.h"
 #include "dronecan_param_store.h"
+#include "rotor.h"
 
 // Motrus specific
 #include "fdcan.h"
@@ -94,7 +95,11 @@ public:
                             const Header& query_header,
                             const mjlib::micro::SizeCallback& callback) override;
 
-    void RegisterPersistentConfig(mjlib::micro::PersistentConfig* config) { persistent_config_ = config; }
+    void RegisterPersistentConfig(mjlib::micro::PersistentConfig* config) {
+        persistent_config_ = config;
+        persistent_config_->Register("rotor", rotor_.config(), [](){});
+    }
+    void RegisterMoteusController(moteus::MoteusController* controller) { moteus_controller_ = controller; }
 
     Config* config() { return &config_; }
 
@@ -135,7 +140,9 @@ private:
     mjlib::micro::PersistentConfig* persistent_config_{nullptr};
     mjlib::micro::Pool* pool_;
     DronecanParamStore* param_store_;
+    moteus::MoteusController* moteus_controller_{nullptr};
     Config config_;
+    Rotor rotor_;
 
     // Status and logging
     Canard::Publisher<uavcan_protocol_NodeStatus> node_status_pub{canard_iface};

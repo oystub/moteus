@@ -122,6 +122,7 @@ MOTEUS_SOURCES = [
     "moteus_hw.cc",
     "millisecond_timer.h",
     "motor_driver.h",
+    "rotor.h",
     "stm32_dma.h",
     "stm32g4_adc.h",
     "stm32g4_adc.cc",

@@ -234,6 +234,10 @@ int main(void) {
       return options;
     }());
 
+  // TODO: Bake in the multiplex features into CanardInterface, so that
+  // we can wait with the DroneCAN initialization, avoiding the need
+  // to pass pointers to modules that aren't yet constructed.
+
   // TODO: We use a fixed node id for now, until DNA is implemented
   DronecanNode dronecan_node{&pool, &fdcan, &param_store, 42};
 
@@ -273,6 +277,8 @@ int main(void) {
       &timer,
       &firmware_info,
       &uuid);
+
+  dronecan_node.RegisterMoteusController(&moteus_controller);
 
   BoardDebug board_debug(
       &pool, &command_manager, &telemetry_manager, &multiplex_protocol,

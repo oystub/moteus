@@ -318,7 +318,7 @@ class MotorPosition {
         "motor", &motor_,
         std::bind(&MotorPosition::HandleConfigUpdate, this));
     telemetry_manager->Register("motor_position", &status_);
-    param_store->Register(config_);
+    param_store->Register(&config_);
 
     absolute_relative_delta.store(0);
 

@@ -34,9 +34,14 @@ public:
     }
 
     /// Registers all parameters within a struct that calls DRONECAN_PARAMETER inside `RegisterParameters()`
+    /* Using a ref is nicer imo, but we follow Moteus convention with pointer
     template <typename T>
     void Register(T& object) {
         object.RegisterParameters(*this);
+    }*/
+    template <typename T>
+    void Register(T* object) {
+        object->RegisterParameters(*this);
     }
 
     /// Retrieves a parameter by index, returning std::optional

@@ -140,10 +140,11 @@ void CanardInterface::set_node_id(uint8_t node_id)
  * DronecanNode
  */
 DronecanNode::DronecanNode(mjlib::micro::Pool* pool, moteus::FDCan* can, DronecanParamStore* param_store, uint8_t node_id)
-    : canard_iface(pool, 8192, can), pool_(pool), param_store_(param_store)
+    : canard_iface(pool, 8192, can), pool_(pool), param_store_(param_store), rotor_(&moteus_controller_)
 {
     canard_iface.set_node_id(node_id);
-    param_store_->Register(config_);
+    param_store_->Register(&config_);
+    param_store_->Register(rotor_.config());
 }
 
 uint32_t DronecanNode::millis32() const
