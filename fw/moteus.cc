@@ -316,6 +316,7 @@ int main(void) {
         fdcan.ConfigureFilters(filter_config);
       });
   persistent_config.Register("dronecan", dronecan_node.config(), [](){});
+  dronecan_node.RegisterPersistentConfig(&persistent_config);
 
   persistent_config.Load();
 

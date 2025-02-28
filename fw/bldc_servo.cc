@@ -1151,6 +1151,7 @@ class BldcServo::Impl {
       }
       case kCurrent:
       case kPosition:
+      case kSinusoidalVelocity:
       case kZeroVelocity:
       case kStayWithinBounds: {
         return true;
@@ -1182,6 +1183,7 @@ class BldcServo::Impl {
       case kVoltageDq:
       case kCurrent:
       case kPosition:
+      case kSinusoidalVelocity:
       case kZeroVelocity:
       case kStayWithinBounds:
       case kMeasureInductance:
@@ -1222,6 +1224,7 @@ class BldcServo::Impl {
       case kVoltageDq:
       case kCurrent:
       case kPosition:
+      case kSinusoidalVelocity:
       case kPositionTimeout:
       case kZeroVelocity:
       case kStayWithinBounds:
@@ -1255,6 +1258,7 @@ class BldcServo::Impl {
           case kVoltageDq:
           case kCurrent:
           case kPosition:
+          case kSinusoidalVelocity:
           case kZeroVelocity:
           case kStayWithinBounds:
           case kMeasureInductance:
@@ -1341,6 +1345,7 @@ class BldcServo::Impl {
           return false;
         case kCurrent:
         case kPosition:
+        case kSinusoidalVelocity:
         case kPositionTimeout:
         case kZeroVelocity:
         case kStayWithinBounds:
@@ -1379,6 +1384,7 @@ class BldcServo::Impl {
         case kBrake:
           return false;
         case kPosition:
+        case kSinusoidalVelocity:
         case kPositionTimeout:
         case kZeroVelocity:
         case kStayWithinBounds:
@@ -1442,7 +1448,7 @@ class BldcServo::Impl {
       }
     }
 
-    if ((status_.mode == kPosition || status_.mode == kStayWithinBounds) &&
+    if ((status_.mode == kPosition || status_.mode == kSinusoidalVelocity || status_.mode == kStayWithinBounds) &&
         !std::isnan(status_.timeout_s) &&
         status_.timeout_s <= 0.0f) {
       status_.mode = kPositionTimeout;
@@ -1509,6 +1515,10 @@ class BldcServo::Impl {
       }
       case kPositionTimeout: {
         ISR_DoPositionTimeout(sin_cos, data);
+        break;
+      }
+      case kSinusoidalVelocity: {
+        ISR_DoSinusoidalVelocity(sin_cos, data);
         break;
       }
       case kZeroVelocity: {
@@ -1942,6 +1952,29 @@ class BldcServo::Impl {
                          data->feedforward_Nm, data->velocity);
   }
 
+  void ISR_DoSinusoidalVelocity(const SinCos& sin_cos, CommandData* data) MOTEUS_CCM_ATTRIBUTE {
+    PID::ApplyOptions apply_options;
+    apply_options.kp_scale = data->kp_scale;
+    apply_options.kd_scale = data->kd_scale;
+    apply_options.ilimit_scale = data->ilimit_scale;
+
+
+    // TODO: Use a different positoin source?
+    float integer_part;
+    const float rotor_pos = std::modf(motor_position_->status().position, &integer_part) * k2Pi;
+    // TODO: Should idally not do an actual trig call in the ISR.
+    const float sinusoidal_term = data->sinusoidal_velocity_scale * std::sin(rotor_pos + data->sinusoidal_velocity_phase);
+    const float command_velocity = data->velocity * (1.0f + sinusoidal_term);
+
+    CommandData sinusoidal_velocity;
+    sinusoidal_velocity.mode = kSinusoidalVelocity;
+    sinusoidal_velocity.position = std::numeric_limits<float>::quiet_NaN();
+    sinusoidal_velocity.velocity = command_velocity;
+    
+    ISR_DoPositionCommon(sin_cos, &sinusoidal_velocity, apply_options, data->max_torque_Nm,
+                         data->feedforward_Nm, command_velocity);
+  }
+
   void ISR_DoPositionCommon(
       const SinCos& sin_cos, CommandData* data,
       const PID::ApplyOptions& pid_options,
@@ -2359,6 +2392,7 @@ class BldcServo::Impl {
   SimplePI pid_d_{&config_.pid_dq, &status_.pid_d};
   SimplePI pid_q_{&config_.pid_dq, &status_.pid_q};
   PID pid_position_{&config_.pid_position, &status_.pid_position};
+  SimplePI pid_velocity_{&config_.pi_velocity, &status_.pi_velocity};
 
   USART_TypeDef* debug_uart_ = nullptr;
   USART_TypeDef* onboard_debug_uart_ = nullptr;

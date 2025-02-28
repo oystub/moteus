@@ -107,6 +107,9 @@ enum BldcServoMode {
   // All phases are pulled to ground.
   kBrake = 15,
 
+  // Sinusoidal velocity control
+  kSinusoidalVelocity = 16,
+
   kNumModes,
 };
 
@@ -150,6 +153,7 @@ struct BldcServoStatus {
   SimplePI::State pid_d;
   SimplePI::State pid_q;
   PID::State pid_position;
+  SimplePI::State pi_velocity;
 
   // This is measured in the same units as MotorPosition's integral
   // units, which is 48 bits to represent 1.0 unit of output
@@ -248,6 +252,7 @@ struct BldcServoStatus {
     a->Visit(MJ_NVP(pid_d));
     a->Visit(MJ_NVP(pid_q));
     a->Visit(MJ_NVP(pid_position));
+    a->Visit(MJ_NVP(pi_velocity));
 
     a->Visit(MJ_NVP(control_position_raw));
     a->Visit(MJ_NVP(control_position));
@@ -330,6 +335,10 @@ struct BldcServoCommandData {
   // For kMeasureInductance
   int8_t meas_ind_period = 4;
 
+  // For kSinusoidalVelocity
+  float sinusoidal_velocity_scale = 0.0f;
+  float sinusoidal_velocity_phase = 0.0f;
+
   template <typename Archive>
   void Serialize(Archive* a) {
     a->Visit(MJ_NVP(mode));
@@ -365,6 +374,8 @@ struct BldcServoCommandData {
     a->Visit(MJ_NVP(bounds_min));
     a->Visit(MJ_NVP(bounds_max));
     a->Visit(MJ_NVP(meas_ind_period));
+    a->Visit(MJ_NVP(sinusoidal_velocity_scale));
+    a->Visit(MJ_NVP(sinusoidal_velocity_phase));
   }
 };
 
@@ -498,6 +509,9 @@ struct BldcServoConfig {
   SimplePI::Config pid_dq;
   PID::Config pid_position;
 
+  // PI controller for velocity control.
+  SimplePI::Config pi_velocity;
+
   // Use the configured motor resistance to apply a feedforward phase
   // voltage based on the desired current.
   float current_feedforward = 1.0f;
@@ -595,6 +609,9 @@ struct BldcServoConfig {
     pid_position.ilimit = 0.0f;
     pid_position.kd = 0.05f;
     pid_position.sign = -1.0f;
+
+    pi_velocity.kp = 1.0f;
+    pi_velocity.ki = 0.0f;
   }
 
   template <typename Archive>
@@ -619,6 +636,7 @@ struct BldcServoConfig {
     a->Visit(MJ_NVP(adc_aux_cycles));
     a->Visit(MJ_NVP(pid_dq));
     a->Visit(MJ_NVP(pid_position));
+    a->Visit(MJ_NVP(pi_velocity));
     a->Visit(MJ_NVP(current_feedforward));
     a->Visit(MJ_NVP(bemf_feedforward));
     a->Visit(MJ_NVP(bemf_feedforward_override));
@@ -687,11 +705,13 @@ struct IsEnum<moteus::BldcServoMode> {
         { M::kVoltageDq, "voltage_dq" },
         { M::kCurrent, "current" },
         { M::kPosition, "position" },
+        { M::kSinusoidalVelocity, "sin_vel" },
         { M::kPositionTimeout, "pos_timeout" },
         { M::kZeroVelocity, "zero_vel" },
         { M::kStayWithinBounds, "within" },
         { M::kMeasureInductance, "meas_ind" },
         { M::kBrake, "brake" },
+  
       }};
   }
 };

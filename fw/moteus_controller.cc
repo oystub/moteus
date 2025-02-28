@@ -126,6 +126,18 @@ Value ScalePower(float value, size_t type) {
   return ScaleMapping(value, 10.0f, 0.05f, 0.0001f, type);
 }
 
+// TODO: Decide on the precise scaling for these.
+Value ScaleSinusoidalVelocityScale(float value, size_t type) {
+  return ScaleMapping(value, 1.0f / 127.0f, 1.0f / 32767.0f,
+                      1.0f / 2147483647.0f,
+                      type);
+}
+
+Value ScaleSinusoidalVelocityPhase(float value, size_t type) {
+  return ScaleMapping(value, k2Pi / 127.0f, k2Pi / 32767.0f,
+                      k2Pi / 2147483647.0f, type);
+}
+
 int8_t ReadIntMapping(Value value) {
   return std::visit([](auto a) {
     return static_cast<int8_t>(a);
@@ -209,6 +221,17 @@ float ReadTime(Value value) {
   return ReadScaleMapping(value, 0.01f, 0.001f, 0.000001f);
 }
 
+// TODO
+float ReadSinusoidalVelocityScale(Value value) {
+  return ReadScaleMapping(value, 1.0f / 127.0f, 1.0f / 32767.0f,
+                      1.0f / 2147483647.0f);
+}
+
+float ReadSinusoidalVelocityPhase(Value value) {
+  return ReadScaleMapping(value, k2Pi / 127.0f, k2Pi / 32767.0f,
+                      k2Pi / 2147483647.0f);
+}
+
 template <typename T, size_t N>
 int8_t PinsToBits(const std::array<T, N>& array) {
   static_assert(N <= 7);
@@ -266,6 +289,8 @@ enum class Register {
   kCommandAccelLimit = 0x029,
   kCommandFixedVoltageOverride = 0x02a,
   kCommandIlimitScale = 0x02b,
+  kCommandSinusoidalVelocityScale = 0x02c,
+  kCommandSinusoidalVelocityPhase = 0x02d,
 
   kPositionKp = 0x030,
   kPositionKi = 0x031,
@@ -753,6 +778,14 @@ class MoteusController::Impl : public multiplex::MicroServer::Server {
         }
         return 0;
       }
+      case Register::kCommandSinusoidalVelocityScale: {
+        command_.sinusoidal_velocity_scale = ReadSinusoidalVelocityScale(value);
+        return 0;
+      }
+      case Register::kCommandSinusoidalVelocityPhase: {
+        command_.sinusoidal_velocity_phase = ReadSinusoidalVelocityPhase(value);
+        return 0;
+      }
 
       case Register::kPosition:
       case Register::kVelocity:
@@ -966,6 +999,12 @@ class MoteusController::Impl : public multiplex::MicroServer::Server {
       case Register::kStayWithinIlimitScale: {
         return ScalePwm(command_.ilimit_scale, type);
       }
+      case Register::kCommandSinusoidalVelocityScale: {
+        return ScaleSinusoidalVelocityScale(command_.sinusoidal_velocity_scale, type);
+     }
+     case Register::kCommandSinusoidalVelocityPhase: {
+       return ScaleSinusoidalVelocityPhase(command_.sinusoidal_velocity_phase, type);
+     }
       case Register::kPositionKp: {
         return ScaleTorque(bldc_.status().pid_position.p, type);
       }

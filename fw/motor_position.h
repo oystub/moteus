@@ -177,7 +177,7 @@ class MotorPosition {
 
     template <typename Store>
       void RegisterParameters(Store& store) {
-        DRONECAN_PARAMETER(MOT_DIR, output.sign, 1, -1, 1,
+        DRONECAN_PARAMETER(ROT_DIR, output.sign, 1, -1, 1,
         [](auto, auto new_val){return new_val == 1 || new_val == -1;});
       }
   };
