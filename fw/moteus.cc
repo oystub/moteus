@@ -38,6 +38,8 @@
 #include "fw/dronecan_param_store.h"
 
 #include "fw/dronecan.h"
+#include "fw/moteus_tunnel.h"
+#include "fw/rotor.h"
 
 #if defined(TARGET_STM32G4)
 #include "fw/fdcan.h"
@@ -234,15 +236,12 @@ int main(void) {
       return options;
     }());
 
-  // TODO: Bake in the multiplex features into CanardInterface, so that
-  // we can wait with the DroneCAN initialization, avoiding the need
-  // to pass pointers to modules that aren't yet constructed.
-
-  // TODO: We use a fixed node id for now, until DNA is implemented
-  DronecanNode dronecan_node{&pool, &fdcan, &param_store, 42};
+  CanardInterface canard_iface(&pool, 8192, &fdcan);
+  MoteusDronecanTunnel moteus_tunnel(&canard_iface);
+  param_store.Register(moteus_tunnel.config());
 
   multiplex::MicroServer multiplex_protocol(
-      &pool, &dronecan_node,
+      &pool, &moteus_tunnel,
       []() {
         multiplex::MicroServer::Options options;
         options.max_tunnel_streams = 3;
@@ -259,6 +258,9 @@ int main(void) {
   Stm32Flash flash_interface;
   micro::PersistentConfig persistent_config(
       pool, command_manager, flash_interface, micro_output_buffer);
+  persistent_config.Register("tunnel", moteus_tunnel.config(), [](){});
+
+  DronecanNode dronecan_node{&pool, &canard_iface, &persistent_config, &param_store};
 
   SystemInfo system_info(pool, telemetry_manager);
   FirmwareInfo firmware_info(pool, telemetry_manager,
@@ -278,7 +280,7 @@ int main(void) {
       &firmware_info,
       &uuid);
 
-  dronecan_node.RegisterMoteusController(&moteus_controller);
+  Rotor rotor(&moteus_controller, &param_store, &persistent_config);
 
   BoardDebug board_debug(
       &pool, &command_manager, &telemetry_manager, &multiplex_protocol,
@@ -315,8 +317,6 @@ int main(void) {
         filter_config.global_ext_action = FDCan::FilterAction::kReject;
         fdcan.ConfigureFilters(filter_config);
       });
-  persistent_config.Register("dronecan", dronecan_node.config(), [](){});
-  dronecan_node.RegisterPersistentConfig(&persistent_config);
 
   persistent_config.Load();
 
@@ -330,10 +330,10 @@ int main(void) {
     if (rs485) {
       rs485->Poll();
     }
-    dronecan_node.poll();
+    canard_iface.process(1);
     moteus_controller.Poll();
     multiplex_protocol.Poll();
-    dronecan_node.poll();
+    canard_iface.process(1);
 
     const auto new_time = timer.read_us();
 

@@ -1,6 +1,5 @@
 #pragma once
 
-
 #include "mjlib/base/visitor.h"
 #include "mjlib/micro/persistent_config.h"
 
@@ -20,12 +19,16 @@ class Rotor {
     class Config;
     class State;
 public:
-    Rotor(moteus::MoteusController** controller) : 
+    Rotor(moteus::MoteusController* controller, DronecanParamStore* param_store, mjlib::micro::PersistentConfig* persistent_config) : 
         controller_(controller)
     {
         cmd_.mode = moteus::kStopped; // Start in stopped mode
         cmd_.position = std::numeric_limits<float>::quiet_NaN(); // We never use position setpoints
         cmd_.timeout_s = std::numeric_limits<float>::quiet_NaN(); // We never use timeouts
+
+        // Register the parameter stores
+        param_store->Register(&config_);
+        persistent_config->Register("rotor", &config_, [](){});
     }
 
     Config* config(){
@@ -126,7 +129,7 @@ private:
     } state_;
 
     moteus::BldcServoCommandData cmd_{};
-    moteus::MoteusController** controller_;
+    moteus::MoteusController* controller_;
 
     void handleVelocityCommand(float rpm_command){
         // If command is negative or zero, keep it at zero
@@ -156,10 +159,7 @@ private:
             cmd_.sinusoidal_velocity_scale = state_.commanded_elevation;
             cmd_.sinusoidal_velocity_phase = state_.commanded_azimuth;
         }
-        if (controller_ == nullptr || *controller_ == nullptr){
-            return;
-        }
-        (*controller_)->bldc_servo()->Command(cmd_);
+        controller_->bldc_servo()->Command(cmd_);
     }
 
     Canard::ObjCallback<Rotor, uavcan_equipment_esc_RawCommand> raw_command_cb {this, &Rotor::handle_esc_RawCommand};
