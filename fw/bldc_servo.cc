@@ -1953,26 +1953,78 @@ class BldcServo::Impl {
   }
 
   void ISR_DoSinusoidalVelocity(const SinCos& sin_cos, CommandData* data) MOTEUS_CCM_ATTRIBUTE {
-    PID::ApplyOptions apply_options;
-    apply_options.kp_scale = data->kp_scale;
-    apply_options.kd_scale = data->kd_scale;
-    apply_options.ilimit_scale = data->ilimit_scale;
+    // Require valid position.
+    if (!position_.position_relative_valid) {
+      status_.mode = kFault;
+      status_.fault = errc::kPositionInvalid;
+      return;
+    }
+    if (position_.error != MotorPosition::Status::kNone) {
+      status_.mode = kFault;
+      status_.fault = errc::kEncoderFault;
+      return;
+    }
 
-
-    // TODO: Use a different positoin source?
     float integer_part;
-    const float rotor_pos = std::modf(motor_position_->status().position, &integer_part) * k2Pi;
+    const float rotor_pos = std::modf(position_.position, &integer_part) * k2Pi;
     // TODO: Should idally not do an actual trig call in the ISR.
     const float sinusoidal_term = data->sinusoidal_velocity_scale * std::sin(rotor_pos + data->sinusoidal_velocity_phase);
     const float command_velocity = data->velocity * (1.0f + sinusoidal_term);
 
-    CommandData sinusoidal_velocity;
-    sinusoidal_velocity.mode = kSinusoidalVelocity;
-    sinusoidal_velocity.position = std::numeric_limits<float>::quiet_NaN();
-    sinusoidal_velocity.velocity = command_velocity;
-    
-    ISR_DoPositionCommon(sin_cos, &sinusoidal_velocity, apply_options, data->max_torque_Nm,
-                         data->feedforward_Nm, command_velocity);
+    const float feedforward_Nm = 0.f; // TODO: Enable torque feedforward at some point.
+
+    // Enforce slew rate limits on the velocity command.
+    BldcServoPosition::DoVelocityModeLimits(&status_, &config_, rate_config_.rate_hz, data, command_velocity);
+
+    // Enforce motor velocity limits
+    if (status_.control_velocity > status_.motor_max_velocity) {
+      status_.control_velocity = status_.motor_max_velocity;
+    } else if (*status_.control_velocity < -status_.motor_max_velocity) {
+      status_.control_velocity = -status_.motor_max_velocity;
+    }
+  
+    auto velocity_command = *status_.control_velocity;
+
+    const float unlimited_torque_Nm = pi_velocity_.Apply(position_.velocity, velocity_command, rate_config_.rate_hz) + feedforward_Nm;
+    const float limited_torque_Nm = Limit(unlimited_torque_Nm, -data->max_torque_Nm, data->max_torque_Nm);
+
+    control_.torque_Nm = limited_torque_Nm;
+    status_.torque_error_Nm = status_.torque_Nm - control_.torque_Nm;
+
+    // Torque to current conversion.
+    const float limited_q_A = torque_to_current(limited_torque_Nm * motor_position_->config()->rotor_to_output_ratio);
+
+    // We ignore cogging torque compensation in this mode, as it is meant for high
+    // speed operation, where cogging torque disturbances are negligible.
+
+    // Limit the current to the maximum allowed value.
+    const float q_A =
+      is_torque_constant_configured() ?
+      limited_q_A :
+      Limit(limited_q_A, -kMaxUnconfiguredCurrent, kMaxUnconfiguredCurrent);
+
+    const float d_A = [&]() MOTEUS_CCM_ATTRIBUTE {
+      if (config_.flux_brake_min_voltage <= 0.0f) {
+        return 0.0f;
+      }
+
+      const auto error = (
+          status_.filt_1ms_bus_V - config_.flux_brake_min_voltage);
+
+      if (error <= 0.0f) {
+        return 0.0f;
+      }
+
+      return (error / config_.flux_brake_resistance_ohm);
+    }();
+
+#ifdef MOTEUS_PERFORMANCE_MEASURE
+    status_.dwt.control_done_pos = DWT->CYCCNT;
+#endif
+
+    ISR_DoCurrent(
+        sin_cos, d_A, q_A,
+        velocity_command / motor_position_->config()->rotor_to_output_ratio);
   }
 
   void ISR_DoPositionCommon(
@@ -2392,7 +2444,7 @@ class BldcServo::Impl {
   SimplePI pid_d_{&config_.pid_dq, &status_.pid_d};
   SimplePI pid_q_{&config_.pid_dq, &status_.pid_q};
   PID pid_position_{&config_.pid_position, &status_.pid_position};
-  SimplePI pid_velocity_{&config_.pi_velocity, &status_.pi_velocity};
+  SimplePI pi_velocity_{&config_.pi_velocity, &status_.pi_velocity};
 
   USART_TypeDef* debug_uart_ = nullptr;
   USART_TypeDef* onboard_debug_uart_ = nullptr;
