@@ -1406,6 +1406,36 @@ class BldcServo::Impl {
       status_.control_position = std::numeric_limits<float>::quiet_NaN();
       status_.control_velocity = {};
     }
+
+    const bool velocity_pi_active = [&]() MOTEUS_CCM_ATTRIBUTE {
+      switch (status_.mode) {
+        case kNumModes:
+        case kStopped:
+        case kFault:
+        case kEnabling:
+        case kCalibrating:
+        case kCalibrationComplete:
+        case kPwm:
+        case kVoltage:
+        case kVoltageFoc:
+        case kVoltageDq:
+        case kCurrent:
+        case kMeasureInductance:
+        case kBrake:
+        case kPosition:
+        case kPositionTimeout:
+        case kZeroVelocity:
+        case kStayWithinBounds:
+          return false;
+        case kSinusoidalVelocity:
+          return true;
+      }
+      return false;
+    }();
+
+    if (!velocity_pi_active || force_clear == kAlwaysClear) {
+      status_.pi_velocity.Clear();
+    }
   }
 
   void ISR_DoControl(const SinCos& sin_cos) MOTEUS_CCM_ATTRIBUTE {
