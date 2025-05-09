@@ -20,6 +20,7 @@
 #include "mjlib/base/limit.h"
 #include "mjlib/base/visitor.h"
 
+#include "fw/high_speed_logger.h"
 #include "fw/ccm.h"
 
 namespace moteus {
@@ -75,6 +76,11 @@ class SimplePI {
     }
   };
 
+  struct LoggedState {
+    float setpoint;
+    float measured;
+  };
+
   SimplePI(const Config* config, State* state)
       : config_(config), state_(state) {}
 
@@ -93,12 +99,30 @@ class SimplePI {
     state_->p = config_->kp * state_->error;
     state_->command = -1.0f * (state_->p + state_->integral);
 
+    if (logger_ != nullptr) {
+      logger_->Log(LoggedState{
+          .setpoint = state_->desired,
+          .measured = measured,
+      });
+    }
+
     return state_->command;
+  }
+
+  void EnableLogging(mjlib::micro::Pool* pool, size_t size) {
+    if (logger_ == nullptr) {
+      logger_ = new HighSpeedLogger<LoggedState>(pool, size);
+    }
+  }
+
+  HighSpeedLogger<LoggedState>* logger() {
+    return logger_;
   }
 
  private:
   const Config* const config_;
   State* const state_;
+  HighSpeedLogger<LoggedState>* logger_ = nullptr;
 };
 
 }

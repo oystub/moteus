@@ -6,6 +6,7 @@
 
 #include "mjlib/base/visitor.h"
 #include "mjlib/micro/persistent_config.h"
+#include "mjlib/micro/pool_ptr.h"
 
 #include "dronecan.h"
 #include "dronecan_param.h"
@@ -23,6 +24,9 @@ class Rotor {
 public:
     struct Config;
     struct State;
+
+    Rotor(moteus::MoteusController* controller, DronecanParamStore* param_store, mjlib::micro::PersistentConfig* persistent_config, DronecanNode* dronecan_node, mjlib::micro::Pool* pool) : 
+        controller_(controller), dronecan_node_(dronecan_node)
     {
         cmd_.mode = moteus::kStopped; // Start in stopped mode
         cmd_.position = std::numeric_limits<float>::quiet_NaN(); // We never use position setpoints
@@ -31,6 +35,9 @@ public:
         // Register the parameter stores
         param_store->Register(&config_);
         persistent_config->Register("rotor", &config_, [](){});
+
+        logger_ = controller_->bldc_servo()->EnableVelocityLogging(pool, 100);
+        logger_->StartCapture();
     }
 
     Config* config(){
@@ -88,7 +95,6 @@ public:
         uint8_t esc_index{0};
         uint8_t elevation_index{0};
         uint8_t azimuth_index{1};
-        float rpm_min{100};
         float rpm_max{10000};
         float azimuth_offset_deg{0};
         float elevation_gain_per_deg{0.01};
@@ -126,6 +132,36 @@ public:
         } 
     } config_;
 
+    void logControlData(){
+        logger_->StartCapture();
+    }
+
+    void sendControlData(){
+        constexpr size_t kMaxDataPoints = 7;
+        size_t data_count{0};
+        uint8_t buffer[60];
+
+        while (data_count < kMaxDataPoints) {
+            auto data = logger_->GetData();
+            if (!data) {
+                break;
+            }
+            auto& log_data = *data;
+
+            size_t offset = sizeof(float) * data_count * 2;
+            memcpy(buffer + offset, &log_data.setpoint, sizeof(float));
+            memcpy(buffer + offset + sizeof(float), &log_data.measured, sizeof(float));
+
+            ++data_count;
+        }
+
+        if (data_count == 0) {
+            return;
+        }
+
+        dronecan_node_->broadcastTunnel(42, 42, buffer, sizeof(float) * data_count * 2);
+    }
+
     struct State {
         bool disarmed{true};
         float commanded_rps{0};
@@ -135,7 +171,8 @@ public:
 
     moteus::BldcServoCommandData cmd_{};
     moteus::MoteusController* controller_;
-
+    DronecanNode* dronecan_node_;
+private:
     void handleVelocityCommand(float rpm_command){
         // If command is negative or zero, keep it at zero
         if (rpm_command <= 0){
@@ -181,6 +218,7 @@ public:
     Canard::Subscriber<uavcan_equipment_esc_RawCommand> raw_command_sub{raw_command_cb, 0};
     Canard::ObjCallback<Rotor, uavcan_equipment_actuator_ArrayCommand> array_command_cb {this, &Rotor::handle_actuator_ArrayCommand};
     Canard::Subscriber<uavcan_equipment_actuator_ArrayCommand> array_command_sub{array_command_cb, 0};
+    HighSpeedLogger<moteus::SimplePI::LoggedState>* logger_{nullptr};
 };
 
 namespace mjlib {

@@ -28,6 +28,7 @@
 #include "fw/aux_port.h"
 #include "fw/bldc_servo_structs.h"
 #include "fw/error.h"
+#include "fw/high_speed_logger.h"
 #include "fw/millisecond_timer.h"
 #include "fw/moteus_hw.h"
 #include "fw/motor_driver.h"
@@ -149,6 +150,8 @@ class BldcServo {
   void RequireReindex();
   void RecapturePositionVelocity();
   void Fault(moteus::errc fault_code);
+
+  HighSpeedLogger<SimplePI::LoggedState>* EnableVelocityLogging(mjlib::micro::Pool* pool, size_t size);
 
  private:
   class Impl;

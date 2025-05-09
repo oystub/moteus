@@ -12,6 +12,7 @@
 #include <uavcan.protocol.GetNodeInfo.h>
 #include <uavcan.protocol.debug.LogMessage.h>
 #include <uavcan.protocol.GetTransportStats.h>
+#include <uavcan.tunnel.Broadcast.h>
 
 #include "canard_iface.h"
 #include "dronecan_param.h"
@@ -33,6 +34,9 @@ DronecanNode(mjlib::micro::Pool* pool, CanardInterface* canard_iface, mjlib::mic
 
     Config* config() { return &config_; }
 
+    void sendLogMessage(const char* source, const char* text, uint8_t level);
+    void broadcastTunnel(uint8_t protocol, uint8_t channel, const uint8_t* data, size_t size);
+
 private:
     struct Config {
         uint8_t node_id{42};
@@ -51,7 +55,7 @@ private:
         }
     };
 
-    void sendLogMessage(const char* source, const char* text, uint8_t level);
+    
 
     // Handlers
     void handle_GetNodeInfo(const CanardRxTransfer& transfer, const uavcan_protocol_GetNodeInfoRequest& req);
@@ -74,6 +78,7 @@ private:
     // Status and logging
     Canard::Publisher<uavcan_protocol_NodeStatus> node_status_pub{*canard_iface_};
     Canard::Publisher<uavcan_protocol_debug_LogMessage> log_pub{*canard_iface_};
+    Canard::Publisher<uavcan_tunnel_Broadcast> tunnel_pub{*canard_iface_};
     Canard::ObjCallback<DronecanNode, uavcan_protocol_GetNodeInfoRequest> node_info_req_cb{
         this, &DronecanNode::handle_GetNodeInfo};
     Canard::Server<uavcan_protocol_GetNodeInfoRequest> node_info_server{

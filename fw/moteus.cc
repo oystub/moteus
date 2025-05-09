@@ -197,7 +197,7 @@ int main(void) {
 
   // We make this static, because we have trouble with stack space running out,
   // but a lot of .data section space.
-  static micro::SizedPool<30000> pool;
+  static micro::SizedPool<40000> pool;
 
   DronecanParamStore param_store(&pool);
 
@@ -280,7 +280,7 @@ int main(void) {
       &firmware_info,
       &uuid);
 
-  Rotor rotor(&moteus_controller, &param_store, &persistent_config);
+  Rotor rotor(&moteus_controller, &param_store, &persistent_config, &dronecan_node, &pool);
 
   BoardDebug board_debug(
       &pool, &command_manager, &telemetry_manager, &multiplex_protocol,
@@ -349,11 +349,13 @@ int main(void) {
       static int count = 0;
       if (count++ % 1000 == 0) {
         dronecan_node.sendDummyNodeStatus();
+        rotor.logControlData();
       }
       telemetry_manager.PollMillisecond();
       system_info.PollMillisecond();
       moteus_controller.PollMillisecond();
       board_debug.PollMillisecond();
+      rotor.sendControlData();
 
       old_time += 1000;
     }

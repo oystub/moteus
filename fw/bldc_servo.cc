@@ -439,6 +439,13 @@ class BldcServo::Impl {
     std::swap(current_data_, next_data_);
   }
 
+  HighSpeedLogger<SimplePI::LoggedState>* EnableVelocityLogging(mjlib::micro::Pool* pool, size_t size){
+    if (pi_velocity_.logger() == nullptr) {
+      pi_velocity_.EnableLogging(pool, size);
+    }
+    return pi_velocity_.logger();
+  }
+
   const Status& status() const { return status_; }
   const Config& config() const { return config_; }
   const Control& control() const { return control_; }
@@ -2569,6 +2576,10 @@ void BldcServo::RecapturePositionVelocity() {
 
 void BldcServo::Fault(moteus::errc fault_code) {
   impl_->Fault(fault_code);
+}
+
+HighSpeedLogger<SimplePI::LoggedState>* BldcServo::EnableVelocityLogging(mjlib::micro::Pool* pool, size_t size){
+  return impl_->EnableVelocityLogging(pool, size);
 }
 
 }

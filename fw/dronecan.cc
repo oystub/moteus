@@ -123,3 +123,16 @@ void DronecanNode::handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, 
 
     this->param_opcode_server.respond(transfer, res);
 }
+
+void DronecanNode::broadcastTunnel(uint8_t protocol, uint8_t channel, const uint8_t* data, size_t size){
+    uavcan_tunnel_Broadcast broadcast_msg{};
+    broadcast_msg.protocol.protocol = protocol;
+    broadcast_msg.channel_id = channel;
+
+
+    size = std::min(size, sizeof(broadcast_msg.buffer.data));
+    std::memcpy(broadcast_msg.buffer.data, data, size);
+    broadcast_msg.buffer.len = size;
+
+    tunnel_pub.broadcast(broadcast_msg);
+}
