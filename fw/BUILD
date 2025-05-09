@@ -115,6 +115,7 @@ MOTEUS_SOURCES = [
     "hardfault.s",
     "firmware_info.h",
     "firmware_info.cc",
+    "high_speed_logger.h",
     "ic_pz.h",
     "ma732.h",
     "moteus_controller.h",
