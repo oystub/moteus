@@ -475,7 +475,6 @@ class MoteusController::Impl : public multiplex::MicroServer::Server {
        micro::CommandManager* command_manager,
        micro::TelemetryManager* telemetry_manager,
        multiplex::MicroServer* multiplex_protocol,
-       DronecanParamStore* param_store,
        ClockManager* clock_manager,
        SystemInfo* system_info,
        MillisecondTimer* timer,
@@ -495,7 +494,7 @@ class MoteusController::Impl : public multiplex::MicroServer::Server {
                    timer,
                    AuxPort::kNoDefaultSpi,
                    {DMA1_Channel7, DMA1_Channel8, DMA2_Channel1, DMA2_Channel2}),
-        motor_position_(persistent_config, telemetry_manager, param_store,
+        motor_position_(persistent_config, telemetry_manager,
                         aux1_port_.status(),
                         aux2_port_.status(),
                         aux1_port_.config(),
@@ -1228,14 +1227,13 @@ MoteusController::MoteusController(micro::Pool* pool,
                                    micro::CommandManager* command_manager,
                                    micro::TelemetryManager* telemetry_manager,
                                    multiplex::MicroServer* multiplex_protocol,
-                                   DronecanParamStore* param_store,
                                    ClockManager* clock_manager,
                                    SystemInfo* system_info,
                                    MillisecondTimer* timer,
                                    FirmwareInfo* firmware,
                                    Uuid* uuid)
     : impl_(pool, pool, persistent_config, command_manager, telemetry_manager,
-            multiplex_protocol, param_store, clock_manager, system_info, timer, firmware,
+            multiplex_protocol, clock_manager, system_info, timer, firmware,
             uuid) {}
 
 MoteusController::~MoteusController() {}

@@ -273,7 +273,6 @@ int main(void) {
       &command_manager,
       &telemetry_manager,
       &multiplex_protocol,
-      &param_store,
       &clock,
       &system_info,
       &timer,
