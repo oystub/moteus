@@ -37,7 +37,7 @@ public:
         persistent_config->Register("rotor", &config_, [](){});
 
         logger_ = controller_->bldc_servo()->EnableVelocityLogging(pool, 100);
-        logger_->StartCapture();
+        //logger_->StartCapture();
     }
 
     Config* config(){
@@ -50,22 +50,41 @@ public:
         }
     }
 
-    void handle_esc_RawCommand(const CanardRxTransfer& transfer, const uavcan_equipment_esc_RawCommand& msg){
+    void handle_esc_RawCommand(const CanardRxTransfer& transfer, const uavcan_equipment_esc_RawCommand& msg){ 
         // RawCommand contains a value in the range [-8192, 8191]
         // We treat negative values as 0.
 
-        if (msg.cmd.len <= config_.esc_index){
-            // The command is not for this ESC
-            return;
+        if (config_.operating_mode == Config::OperatingMode::kEuclidean){
+            // We need x, y and z commands
+            if (msg.cmd.len <= std::max({config_.esc_index_z, config_.esc_index_y, config_.esc_index_y_neg})){
+                // The command is not for this ESC
+                return;
+            }
+            // Normalize to [-1, 1]
+            float y_command = static_cast<float>(std::clamp(msg.cmd.data[config_.esc_index_y], int16_t{0}, int16_t{8191})) / 8191.f
+                - static_cast<float>(std::clamp(msg.cmd.data[config_.esc_index_y_neg], int16_t{0}, int16_t{8191})) / 8191.f;
+            // Wait with x command until we have a use for it
+            // Z command is min 0, normalize to [0, 1]
+            float z_command = static_cast<float>(std::clamp(msg.cmd.data[config_.esc_index_z], int16_t{0}, int16_t{8191})) / 8191.f;
+            state_.commanded_elevation_rad = y_command * config_.max_elevation_deg * moteus::kPi / 180.f;
+            auto rpm_command = thrustToRpm(z_command);
+            handleVelocityCommand(rpm_command);
+            sendMotorCommand();
+        } else if (config_.operating_mode == Config::OperatingMode::kPolar){
+
+            if (msg.cmd.len <= config_.esc_index){
+                // The command is not for this ESC
+                return;
+            }
+            auto raw_command = msg.cmd.data[config_.esc_index];
+            float thrust_command = static_cast<float>(std::clamp(raw_command, int16_t{0}, int16_t{8191})) / 8191.f; // Normalize to [0, 1]
+    
+            // For now, we assume a quadratic relationship between thrust and speed
+            auto rpm_command = thrustToRpm(thrust_command);
+    
+            handleVelocityCommand(rpm_command);
+            sendMotorCommand();
         }
-        auto raw_command = msg.cmd.data[config_.esc_index];
-        float thrust_command = static_cast<float>(std::clamp(raw_command, int16_t{0}, int16_t{8191})) / 8191.f; // Normalize to [0, 1]
-
-        // For now, we assume a quadratic relationship between thrust and speed
-        auto rpm_command = thrustToRpm(thrust_command);
-
-        handleVelocityCommand(rpm_command);
-        sendMotorCommand();
     }
 
     void handle_actuator_ArrayCommand(const CanardRxTransfer& transfer, const uavcan_equipment_actuator_ArrayCommand& msg){
@@ -93,6 +112,10 @@ public:
 
     struct Config {
         uint8_t esc_index{0};
+        uint8_t esc_index_x{0};
+        uint8_t esc_index_y{1};
+        uint8_t esc_index_y_neg{2};
+        uint8_t esc_index_z{2};
         uint8_t elevation_index{0};
         uint8_t azimuth_index{1};
         float rpm_max{10000};
@@ -109,10 +132,14 @@ public:
         template <typename Store>
         void RegisterParameters(Store& store) {
             DRONECAN_PARAMETER(ROT_ESC_IDX, esc_index, 0, 0, 19);
+            DRONECAN_PARAMETER(ROT_ESC_IDX_X, esc_index_x, 0, 0, 19);
+            DRONECAN_PARAMETER(ROT_ESC_IDX_YPOS, esc_index_y, 1, 0, 19);
+            DRONECAN_PARAMETER(ROT_ESC_IDX_YNEG, esc_index_y_neg, 2, 0, 19);
+            DRONECAN_PARAMETER(ROT_ESC_IDX_Z, esc_index_z, 2, 0, 19);
             DRONECAN_PARAMETER(ROT_ELV_IDX, elevation_index, 0, 0, 255);
             DRONECAN_PARAMETER(ROT_AZM_IDX, azimuth_index, 1, 0, 255);
             DRONECAN_PARAMETER(ROT_RPM_MAX, rpm_max, 10000, 0, 10000);
-            DRONECAN_PARAMETER(ROT_AZM_OFF, azimuth_offset_deg, 0, -180, 180);
+            DRONECAN_PARAMETER(ROT_AZM_OFF, azimuth_offset_deg, 0, -360, 360);
             DRONECAN_PARAMETER(ROT_ELV_GAIN, elevation_gain_per_deg, 0.01, 0, 0.1);
             DRONECAN_PARAMETER(ROT_MAX_ELV, max_elevation_deg, 20, 0, 90);
             DRONECAN_PARAMETER(ROT_CMD_MODE, (uint8_t&)operating_mode, 0, 0, 1);
@@ -122,6 +149,10 @@ public:
         template <typename Archive>
         void Serialize(Archive* a) {
             a->Visit(MJ_NVP(esc_index));
+            a->Visit(MJ_NVP(esc_index_x));
+            a->Visit(MJ_NVP(esc_index_y));
+            a->Visit(MJ_NVP(esc_index_y_neg));
+            a->Visit(MJ_NVP(esc_index_z));
             a->Visit(MJ_NVP(elevation_index));
             a->Visit(MJ_NVP(azimuth_index));
             a->Visit(MJ_NVP(rpm_max));
@@ -199,7 +230,7 @@ private:
             cmd_.mode = moteus::BldcServoMode::kSinusoidalVelocity;
             cmd_.velocity = state_.commanded_rps;
             cmd_.sinusoidal_velocity_scale = modulationGain(state_.commanded_elevation_rad, state_.commanded_rps);
-            cmd_.sinusoidal_velocity_phase = state_.commanded_azimuth_rad;
+            cmd_.sinusoidal_velocity_phase = state_.commanded_azimuth_rad + config_.azimuth_offset_deg * (moteus::kPi / 180.f);
         }
         controller_->bldc_servo()->Command(cmd_);
     }

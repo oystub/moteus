@@ -1391,10 +1391,10 @@ class BldcServo::Impl {
         case kBrake:
           return false;
         case kPosition:
-        case kSinusoidalVelocity:
         case kPositionTimeout:
         case kZeroVelocity:
         case kStayWithinBounds:
+        case kSinusoidalVelocity:
           return true;
       }
       return false;
@@ -1402,39 +1402,10 @@ class BldcServo::Impl {
 
     if (!position_pid_active || force_clear == kAlwaysClear) {
       status_.pid_position.Clear();
+      status_.pi_velocity.Clear();
       status_.control_position_raw = {};
       status_.control_position = std::numeric_limits<float>::quiet_NaN();
       status_.control_velocity = {};
-    }
-
-    const bool velocity_pi_active = [&]() MOTEUS_CCM_ATTRIBUTE {
-      switch (status_.mode) {
-        case kNumModes:
-        case kStopped:
-        case kFault:
-        case kEnabling:
-        case kCalibrating:
-        case kCalibrationComplete:
-        case kPwm:
-        case kVoltage:
-        case kVoltageFoc:
-        case kVoltageDq:
-        case kCurrent:
-        case kMeasureInductance:
-        case kBrake:
-        case kPosition:
-        case kPositionTimeout:
-        case kZeroVelocity:
-        case kStayWithinBounds:
-          return false;
-        case kSinusoidalVelocity:
-          return true;
-      }
-      return false;
-    }();
-
-    if (!velocity_pi_active || force_clear == kAlwaysClear) {
-      status_.pi_velocity.Clear();
     }
   }
 
@@ -1485,7 +1456,7 @@ class BldcServo::Impl {
       }
     }
 
-    if ((status_.mode == kPosition || status_.mode == kSinusoidalVelocity || status_.mode == kStayWithinBounds) &&
+    if ((status_.mode == kPosition || status_.mode == kStayWithinBounds) &&
         !std::isnan(status_.timeout_s) &&
         status_.timeout_s <= 0.0f) {
       status_.mode = kPositionTimeout;
@@ -2008,19 +1979,28 @@ class BldcServo::Impl {
     const float sinusoidal_term = data->sinusoidal_velocity_scale * std::sin(rotor_pos + data->sinusoidal_velocity_phase);
     const float command_velocity = data->velocity * (1.0f + sinusoidal_term);
 
-    const float feedforward_Nm = 0.f; // TODO: Enable torque feedforward at some point.
 
     // Enforce slew rate limits on the velocity command.
+    if (!status_.control_velocity) {
+      status_.control_velocity = status_.velocity;
+    }
     BldcServoPosition::DoVelocityModeLimits(&status_, &config_, rate_config_.rate_hz, data, command_velocity);
 
     // Enforce motor velocity limits
-    if (status_.control_velocity > status_.motor_max_velocity) {
-      status_.control_velocity = status_.motor_max_velocity;
-    } else if (*status_.control_velocity < -status_.motor_max_velocity) {
-      status_.control_velocity = -status_.motor_max_velocity;
+    if (!std::isnan(status_.motor_max_velocity)) {
+      if (status_.control_velocity > status_.motor_max_velocity) {
+        status_.control_velocity = status_.motor_max_velocity;
+      } else if (*status_.control_velocity < -status_.motor_max_velocity) {
+        status_.control_velocity = -status_.motor_max_velocity;
+      }
     }
-  
     auto velocity_command = *status_.control_velocity;
+
+    constexpr float a = 3.958e-5f;
+    constexpr float b = -2.002e-4f;
+    constexpr float c = 0.01442f;
+    float feedforward_Nm = a * velocity_command * velocity_command + b * std::abs(velocity_command) + c;
+    feedforward_Nm *= std::copysign(1.0f, velocity_command);
 
     const float unlimited_torque_Nm = pi_velocity_.Apply(position_.velocity, velocity_command, rate_config_.rate_hz) + feedforward_Nm;
     const float limited_torque_Nm = Limit(unlimited_torque_Nm, -data->max_torque_Nm, data->max_torque_Nm);
