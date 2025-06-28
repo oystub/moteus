@@ -19,6 +19,7 @@ load("//tools/workspace:github_archive.bzl", "github_archive")
 def mjlib_repository(name):
     github_archive(
         name = name,
+        local_override = "../mjlib",
         repo = "mjbots/mjlib",
         commit = "184e1192a5477bf45cf95f77d8a587b4649e39e6",
         sha256 = "090b0237ba99df55e63c104ffdbd69841c4667e0115092742df612ce799c310b",
