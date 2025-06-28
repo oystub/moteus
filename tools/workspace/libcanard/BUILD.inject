@@ -1,0 +1,17 @@
+cc_library(
+    name = "libcanard",
+    hdrs = [
+        "canard.h",
+        "canard_internals.h",
+    ] + glob([
+        "canard/*.h",  # All headers in the 'canard/' subdirectory
+    ]),
+    srcs = [
+        "canard.c",
+    ],
+    includes = ["."],
+    strip_include_prefix = ".",
+    include_prefix = "libcanard",
+    visibility = ["//visibility:public"],
+    copts = ["-DDRONECAN_CXX_WRAPPERS"],
+)
