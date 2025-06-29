@@ -311,10 +311,8 @@ void FDCan::Send(uint32_t dest_id,
                  std::string_view data,
                  const SendOptions& send_options) {
 
-  // Abort anything we have started that hasn't finished.
-  if (last_tx_request_) {
-    HAL_FDCAN_AbortTxRequest(&hfdcan1_, last_tx_request_);
-  }
+  // Wait until the FIFO is ready to accept a new message
+  while (!ReadyForSend()) {}
 
   FDCAN_TxHeaderTypeDef tx_header;
   tx_header.Identifier = dest_id;
@@ -358,6 +356,11 @@ bool FDCan::Poll(FDCAN_RxHeaderTypeDef* header,
   return true;
 }
 
+bool FDCan::PollReal(FDCAN_RxHeaderTypeDef& header, uint8_t* data) {
+  return HAL_FDCAN_GetRxMessage(&hfdcan1_, FDCAN_RX_FIFO0, &header, data) == HAL_OK;
+}
+
+
 void FDCan::RecoverBusOff() {
   hfdcan1_.Instance->CCCR &= ~FDCAN_CCCR_INIT;
 }
@@ -391,6 +394,10 @@ int FDCan::ParseDlc(uint32_t dlc_code) {
   if (dlc_code == FDCAN_DLC_BYTES_64) { return 64; }
   mbed_die();
   return 0;
+}
+
+bool FDCan::ReadyForSend() {
+  return (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan1_) > 0);
 }
 
 }

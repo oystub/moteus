@@ -23,6 +23,7 @@ COPTS = [
     "-Wdouble-promotion",
     "-gdwarf-4",
     "-DDRONECAN_CXX_WRAPPERS",
+    "-DCANARD_ENABLE_CANFD=1",
 ]
 
 cc_library(
@@ -107,6 +108,8 @@ MOTEUS_SOURCES = [
     "drv8323.h",
     "drv8323.cc",
     "error.cc",
+    "fdcan_canard_interface.h",
+    "fdcan_canard_interface.cc",
     "hardfault.s",
     "firmware_info.h",
     "firmware_info.cc",
