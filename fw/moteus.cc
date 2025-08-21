@@ -297,9 +297,7 @@ int main(void) {
         filter_config.global_std_action = FDCan::FilterAction::kAccept;
         filter_config.global_ext_action = FDCan::FilterAction::kReject;
         fdcan.ConfigureFilters(filter_config);
-
-        fdcan_micro_server.SetPrefix(can_config.prefix);
-      });
+  MicrosecondTimer us_timer{};
 
   persistent_config.Load();
 
