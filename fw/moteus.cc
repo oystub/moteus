@@ -34,7 +34,6 @@
 #include "fw/fdcan_canard_interface.h"
 #include "fw/firmware_info.h"
 #include "fw/git_info.h"
-#include "fw/microsecond_timer.h"
 #include "fw/millisecond_timer.h"
 #include "fw/moteus_controller.h"
 #include "fw/moteus_hw.h"
@@ -315,8 +314,8 @@ int main(void) {
   DronecanParamStore dronecan_param_store(&pool);
   dronecan_param_store.Register(moteus_tunnel.config());
 
-  MicrosecondTimer us_timer{};
-  DronecanNode dronecan_node(&pool, &fdcan_canard_interface, &persistent_config, &dronecan_param_store, &us_timer);
+  DronecanNode dronecan_node(&pool, &fdcan_canard_interface, &persistent_config, &dronecan_param_store);
+  dronecan_node.attachTunnel(&moteus_tunnel);
   persistent_config.Register("dronecan", dronecan_node.config(), [](){});
   dronecan_param_store.Register(dronecan_node.config());
 
@@ -339,7 +338,7 @@ int main(void) {
     multiplex_protocol.Poll();
 
     const auto new_time = timer.read_us();
-    dronecan_node.poll();
+    dronecan_node.poll(timer.ms_since_boot());
 
     const auto delta_us = MillisecondTimer::subtract_us(new_time, old_time);
     if (moteus_controller.bldc_servo()->config().timing_fault &&
