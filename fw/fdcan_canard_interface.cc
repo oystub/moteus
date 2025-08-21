@@ -82,7 +82,7 @@ void FdcanCanardInterface::spin_once(uint64_t timestamp_usec) {
     if (rx_header_->RxFrameType == FDCAN_REMOTE_FRAME) {
       rx_frame_->id |= CANARD_CAN_FRAME_RTR;
     }
-    if (rx_header_->ErrorStateIndicator == FDCAN_ESI_ACTIVE) {
+    if (rx_header_->ErrorStateIndicator == FDCAN_ESI_PASSIVE) {
       rx_frame_->id |= CANARD_CAN_FRAME_ERR;
     }
     if (rx_header_->IdType == FDCAN_EXTENDED_ID) {
