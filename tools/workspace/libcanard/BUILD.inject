@@ -13,5 +13,5 @@ cc_library(
     strip_include_prefix = ".",
     include_prefix = "libcanard",
     visibility = ["//visibility:public"],
-    copts = ["-DDRONECAN_CXX_WRAPPERS"],
+    copts = ["-DDRONECAN_CXX_WRAPPERS", "-DCANARD_ENABLE_CANFD=1"],
 )

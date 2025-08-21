@@ -28,8 +28,13 @@
 
 #include "fw/board_debug.h"
 #include "fw/clock_manager.h"
+#include "fw/dronecan_node.h"
+#include "fw/dronecan_param_store.h"
+#include "fw/dronecan_tunnel.h"
+#include "fw/fdcan_canard_interface.h"
 #include "fw/firmware_info.h"
 #include "fw/git_info.h"
+#include "fw/microsecond_timer.h"
 #include "fw/millisecond_timer.h"
 #include "fw/moteus_controller.h"
 #include "fw/moteus_hw.h"
@@ -190,7 +195,9 @@ int main(void) {
   // Turn on our power light.
   DigitalOut power_led(g_hw_pins.power_led, 0);
 
-  micro::SizedPool<20000> pool;
+  // We make this static to move it out of the stack and into .bss/.data SRAM,
+  // since we are running out of stack space but still have plenty of RAM available.
+  static micro::SizedPool<40000> pool;
 
   std::optional<HardwareUart> rs485;
   if (g_hw_pins.uart_tx != NC) {
@@ -226,9 +233,11 @@ int main(void) {
 
       return options;
     }());
-  FDCanMicroServer fdcan_micro_server(&fdcan);
+
+  MoteusDronecanTunnel moteus_tunnel{};
+
   multiplex::MicroServer multiplex_protocol(
-      &pool, &fdcan_micro_server,
+      &pool, &moteus_tunnel,
       []() {
         multiplex::MicroServer::Options options;
         options.max_tunnel_streams = 3;
@@ -263,6 +272,8 @@ int main(void) {
       &firmware_info,
       &uuid);
 
+    // Initialize the dronecan rotor
+
   BoardDebug board_debug(
       &pool, &command_manager, &telemetry_manager, &multiplex_protocol,
       moteus_controller.bldc_servo());
@@ -276,7 +287,7 @@ int main(void) {
 
   persistent_config.Register(
       "can", &can_config,
-      [&can_config, &fdcan, &fdcan_micro_server, &old_can_config]() {
+      [&can_config, &fdcan, &old_can_config]() {
         // We only update our config if it has actually changed.
         // Re-initializing the CAN-FD controller can cause packets to
         // be lost, so don't do it unless actually necessary.
@@ -297,12 +308,22 @@ int main(void) {
         filter_config.global_std_action = FDCan::FilterAction::kAccept;
         filter_config.global_ext_action = FDCan::FilterAction::kReject;
         fdcan.ConfigureFilters(filter_config);
-  
-        fdcan_micro_server.SetPrefix(can_config.prefix);
       });
+  persistent_config.Register("tunnel", moteus_tunnel.config(), [](){});
+
+  FdcanCanardInterface fdcan_canard_interface(0, pool, 2048, fdcan);
+  DronecanParamStore dronecan_param_store(&pool);
+  dronecan_param_store.Register(moteus_tunnel.config());
+
   MicrosecondTimer us_timer{};
+  DronecanNode dronecan_node(&pool, &fdcan_canard_interface, &persistent_config, &dronecan_param_store, &us_timer);
+  persistent_config.Register("dronecan", dronecan_node.config(), [](){});
+  dronecan_param_store.Register(dronecan_node.config());
 
   persistent_config.Load();
+
+  // Now, config is properly loaded, and we can initialize the dronecan functionality
+  dronecan_node.start();
 
   moteus_controller.Start();
   command_manager.AsyncStart();
@@ -314,13 +335,11 @@ int main(void) {
     if (rs485) {
       rs485->Poll();
     }
-#if defined(TARGET_STM32G4)
-    fdcan_micro_server.Poll();
-#endif
     moteus_controller.Poll();
     multiplex_protocol.Poll();
 
     const auto new_time = timer.read_us();
+    dronecan_node.poll();
 
     const auto delta_us = MillisecondTimer::subtract_us(new_time, old_time);
     if (moteus_controller.bldc_servo()->config().timing_fault &&
@@ -334,7 +353,6 @@ int main(void) {
       system_info.PollMillisecond();
       moteus_controller.PollMillisecond();
       board_debug.PollMillisecond();
-      system_info.SetCanResetCount(fdcan_micro_server.can_reset_count());
       timer.AdvanceMsSinceBoot();
 
       old_time += 1000;

@@ -8,7 +8,9 @@
 fw/BUILD/
 fw/.mbedignore
 
-/bazel-*
+bazel-*
+build/*
+
 hw/c1/#auto_saved_files#
 hw/n2/#auto_saved_files#
 hw/x1/#auto_saved_files#
