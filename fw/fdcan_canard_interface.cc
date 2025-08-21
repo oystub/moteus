@@ -21,7 +21,7 @@ void FdcanCanardInterface::set_node_id(uint8_t node_id) {
   if (canardGetLocalNodeID(canard_) != CANARD_BROADCAST_NODE_ID) {
     canardForgetLocalNodeID(canard_);
   }
-  if (node_id == CANARD_BROADCAST_NODE_ID) {
+  if (node_id == CANARD_BROADCAST_NODE_ID || node_id > CANARD_MAX_NODE_ID) {
     return;
   }
   canardSetLocalNodeID(canard_, node_id);
