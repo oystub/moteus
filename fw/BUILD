@@ -128,8 +128,6 @@ MOTEUS_SOURCES = [
     "moteus_hardfault_handler.cc",
     "moteus_hw.h",
     "moteus_hw.cc",
-    "microsecond_timer.h",
-    "microsecond_timer.cc",
     "millisecond_timer.h",
     "motor_driver.h",
     "stm32_dma.h",
