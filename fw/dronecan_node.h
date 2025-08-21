@@ -13,7 +13,6 @@
 #include <uavcan.protocol.GetTransportStats.h>
 #include <uavcan.tunnel.Broadcast.h>
 
-
 #include "fdcan_canard_interface.h"
 #include <canard/publisher.h>
 #include <canard/subscriber.h>
@@ -27,22 +26,16 @@
 // Moteus specific
 #include "mjlib/micro/persistent_config.h"
 
-class DronecanNode
-{
-private:
-    class Config;
+class DronecanNode {
 public:
-DronecanNode(mjlib::micro::Pool* pool, FdcanCanardInterface* canard_iface, mjlib::micro::PersistentConfig* persistent_config, DronecanParamStore* param_store);
+    DronecanNode(mjlib::micro::Pool* pool,
+                 FdcanCanardInterface* canard_iface,
+                 mjlib::micro::PersistentConfig* persistent_config,
+                 DronecanParamStore* param_store);
+
     void start();
     void poll(uint32_t time_ms);
 
-
-    Config* config() { return &config_; }
-
-    void sendLogMessage(const char* source, const char* text, uint8_t level);
-    void attachTunnel(MoteusDronecanTunnel* tunnel);
-
-private:
     struct Config {
         uint8_t node_id{42};
 
@@ -57,21 +50,20 @@ private:
         }
     };
 
-    void sendNodeStatus();
+    Config* config() { return &config_; }
 
-    // Handlers
-    void handle_GetNodeInfo(const CanardRxTransfer& transfer, const uavcan_protocol_GetNodeInfoRequest& req);
-    void handle_param_GetSet(const CanardRxTransfer& transfer, const uavcan_protocol_param_GetSetRequest& req);
-    void handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, const uavcan_protocol_param_ExecuteOpcodeRequest& req);
-    void handle_GetTransportStats(const CanardRxTransfer& transfer, const uavcan_protocol_GetTransportStatsRequest& req);
-    void handle_tunnel_Broadcast(const CanardRxTransfer& transfer, const uavcan_tunnel_Broadcast& req);
+    void sendLogMessage(const char* source, const char* text, uint8_t level);
+    void attachTunnel(MoteusDronecanTunnel* tunnel);
+
+private:
+    void sendNodeStatus();
 
     static void getUniqueID(uint8_t id[16]);
 
     uint32_t last_nodestatus_ms_{0};
     uint32_t latest_time_ms_{0};
+    uavcan_protocol_NodeStatus node_status_msg_{};
 
-    uavcan_protocol_NodeStatus node_status_msg{};
     mjlib::micro::Pool* const pool_;
     FdcanCanardInterface* const canard_iface_;
     mjlib::micro::PersistentConfig* const persistent_config_;
@@ -80,31 +72,27 @@ private:
 
     MoteusDronecanTunnel* dronecan_tunnel_{nullptr};
 
-    // Status and logging
-    Canard::Publisher<uavcan_protocol_NodeStatus> node_status_pub{*canard_iface_};
-    Canard::Publisher<uavcan_protocol_debug_LogMessage> log_pub{*canard_iface_};
-    Canard::ObjCallback<DronecanNode, uavcan_protocol_GetNodeInfoRequest> node_info_req_cb{
-        this, &DronecanNode::handle_GetNodeInfo};
-    Canard::Server<uavcan_protocol_GetNodeInfoRequest> node_info_server{
-        *canard_iface_, node_info_req_cb};
+    Canard::Publisher<uavcan_protocol_NodeStatus> node_status_pub_{*canard_iface_};
+    Canard::Publisher<uavcan_protocol_debug_LogMessage> log_pub_{*canard_iface_};
 
-    // Parameter handling
-    Canard::ObjCallback<DronecanNode, uavcan_protocol_param_GetSetRequest> param_get_set_req_cb{
-        this, &DronecanNode::handle_param_GetSet};
-    Canard::Server<uavcan_protocol_param_GetSetRequest> param_server{
-        *canard_iface_, param_get_set_req_cb};
-    Canard::ObjCallback<DronecanNode, uavcan_protocol_param_ExecuteOpcodeRequest> param_executeopcode_req_cb{
-        this, &DronecanNode::handle_param_ExecuteOpcode};
-    Canard::Server<uavcan_protocol_param_ExecuteOpcodeRequest> param_opcode_server{
-        *canard_iface_, param_executeopcode_req_cb};
-    Canard::ObjCallback<DronecanNode, uavcan_protocol_GetTransportStatsRequest> transport_stats_cb{
-        this, &DronecanNode::handle_GetTransportStats};
-    Canard::Server<uavcan_protocol_GetTransportStatsRequest> transport_stats_server{
-        *canard_iface_, transport_stats_cb};
+    void handle_GetNodeInfo(const CanardRxTransfer& transfer, const uavcan_protocol_GetNodeInfoRequest& req);
+    Canard::ObjCallback<DronecanNode, uavcan_protocol_GetNodeInfoRequest> node_info_req_cb_{this, &DronecanNode::handle_GetNodeInfo};
+    Canard::Server<uavcan_protocol_GetNodeInfoRequest> node_info_server_{*canard_iface_, node_info_req_cb_};
 
-    // Moteus tunnelling
-    Canard::ObjCallback<DronecanNode, uavcan_tunnel_Broadcast> tunnel_broadcast_cb{
-        this, &DronecanNode::handle_tunnel_Broadcast};
-    Canard::Subscriber<uavcan_tunnel_Broadcast> tunnel_sub_{tunnel_broadcast_cb, 0};
+    void handle_param_GetSet(const CanardRxTransfer& transfer, const uavcan_protocol_param_GetSetRequest& req);
+    Canard::ObjCallback<DronecanNode, uavcan_protocol_param_GetSetRequest> param_get_set_req_cb_{this, &DronecanNode::handle_param_GetSet};
+    Canard::Server<uavcan_protocol_param_GetSetRequest> param_server_{*canard_iface_, param_get_set_req_cb_};
+
+    void handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, const uavcan_protocol_param_ExecuteOpcodeRequest& req);
+    Canard::ObjCallback<DronecanNode, uavcan_protocol_param_ExecuteOpcodeRequest> param_executeopcode_req_cb_{this, &DronecanNode::handle_param_ExecuteOpcode};
+    Canard::Server<uavcan_protocol_param_ExecuteOpcodeRequest> param_opcode_server_{*canard_iface_, param_executeopcode_req_cb_};
+
+    void handle_GetTransportStats(const CanardRxTransfer& transfer, const uavcan_protocol_GetTransportStatsRequest& req);
+    Canard::ObjCallback<DronecanNode, uavcan_protocol_GetTransportStatsRequest> transport_stats_cb_{this, &DronecanNode::handle_GetTransportStats};
+    Canard::Server<uavcan_protocol_GetTransportStatsRequest> transport_stats_server_{*canard_iface_, transport_stats_cb_};
+
+    void handle_tunnel_Broadcast(const CanardRxTransfer& transfer, const uavcan_tunnel_Broadcast& req);
+    Canard::ObjCallback<DronecanNode, uavcan_tunnel_Broadcast> tunnel_broadcast_cb_{this, &DronecanNode::handle_tunnel_Broadcast};
+    Canard::Subscriber<uavcan_tunnel_Broadcast> tunnel_sub_{tunnel_broadcast_cb_, 0};
     Canard::Publisher<uavcan_tunnel_Broadcast> tunnel_pub_{*canard_iface_};
 };

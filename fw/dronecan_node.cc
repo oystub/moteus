@@ -1,39 +1,44 @@
 #include "fw/dronecan_node.h"
 
- DronecanNode::DronecanNode(mjlib::micro::Pool* pool, FdcanCanardInterface* canard_iface, mjlib::micro::PersistentConfig* persistent_config, DronecanParamStore* param_store)
- : pool_(pool), canard_iface_(canard_iface), persistent_config_(persistent_config), param_store_(param_store)
- {}
+namespace {
+constexpr uint32_t kUniqueIdBaseAddr = 0x1FFF7590;  // STM32G4 UID base
+constexpr uint8_t  kIdPadValue = 0xAB;
+constexpr char     kNodeName[] = "Swashplateless rotor";
+}  // namespace
 
-void DronecanNode::start()
-{
+DronecanNode::DronecanNode(mjlib::micro::Pool* pool,
+                           FdcanCanardInterface* canard_iface,
+                           mjlib::micro::PersistentConfig* persistent_config,
+                           DronecanParamStore* param_store)
+    : pool_(pool),
+      canard_iface_(canard_iface),
+      persistent_config_(persistent_config),
+      param_store_(param_store) {}
+
+void DronecanNode::start() {
     // TODO: Dynamic node allocation
     canard_iface_->set_node_id(config_.node_id);
 }
 
-void DronecanNode::getUniqueID(uint8_t id[16])
-{
-    // STM32G4 series unique ID base (96 bits)
-    const uint32_t* unique_id_base = reinterpret_cast<const uint32_t*>(0x1FFF7590);
-
-    // Copy the 12-byte (96 bit) unique ID
+void DronecanNode::getUniqueID(uint8_t id[16]) {
+    // 96 bits from the STM32G4 UID (unique per board)
+    const uint32_t* unique_id_base = reinterpret_cast<const uint32_t*>(kUniqueIdBaseAddr);
     memcpy(id, unique_id_base, 12);
-
-    // Pad the remaining 4 bytes with a known value, 0xAB
-    memset(id + 12, 0xAB, 4);
+    // Pad remaining 32 bits with an arbitrary fixed value
+    memset(id + 12, kIdPadValue, 4);
 }
 
-void DronecanNode::sendNodeStatus()
-{
-    node_status_msg.health = UAVCAN_PROTOCOL_NODESTATUS_HEALTH_OK;
-    node_status_msg.mode   = UAVCAN_PROTOCOL_NODESTATUS_MODE_OPERATIONAL;
-    node_status_msg.sub_mode = 0;
-    node_status_msg.vendor_specific_status_code = 0;
-    node_status_msg.uptime_sec = latest_time_ms_ / 1000;
+void DronecanNode::sendNodeStatus() {
+    node_status_msg_.health = UAVCAN_PROTOCOL_NODESTATUS_HEALTH_OK;
+    node_status_msg_.mode   = UAVCAN_PROTOCOL_NODESTATUS_MODE_OPERATIONAL;
+    node_status_msg_.sub_mode = 0;
+    node_status_msg_.vendor_specific_status_code = 0;
+    node_status_msg_.uptime_sec = latest_time_ms_ / 1000;
 
-    this->node_status_pub.broadcast(node_status_msg);
+    node_status_pub_.broadcast(node_status_msg_);
 }
 
-void DronecanNode::poll(uint32_t time_ms){
+void DronecanNode::poll(uint32_t time_ms) {
     latest_time_ms_ = time_ms;
     if (time_ms - last_nodestatus_ms_ > 1000) {
         sendNodeStatus();
@@ -43,70 +48,59 @@ void DronecanNode::poll(uint32_t time_ms){
     canard_iface_->spin_once(time_us);
 }
 
-void DronecanNode::handle_GetNodeInfo(const CanardRxTransfer& transfer, const uavcan_protocol_GetNodeInfoRequest& req)
-{
+void DronecanNode::handle_GetNodeInfo(const CanardRxTransfer& transfer,
+                                      const uavcan_protocol_GetNodeInfoRequest& req) {
+    (void)req;
 
-    node_status_msg.vendor_specific_status_code = 1;
-    (void)req; // Suppress unused parameter warning
+    uavcan_protocol_GetNodeInfoResponse res{};
+    res.name.len = snprintf(reinterpret_cast<char*>(res.name.data),
+                            sizeof(res.name.data),
+                            "%s", kNodeName);
+    res.software_version.major = 0;
+    res.software_version.minor = 1;
+    res.hardware_version.major = 0;
+    res.hardware_version.minor = 1;
 
-    uavcan_protocol_GetNodeInfoResponse node_info_rsp{};
-    node_info_rsp.name.len = snprintf(
-        reinterpret_cast<char*>(node_info_rsp.name.data),
-        sizeof(node_info_rsp.name.data),
-        "Moteus ESC"
-    );
-    node_info_rsp.software_version.major = 0;
-    node_info_rsp.software_version.minor = 1;
-    node_info_rsp.hardware_version.major = 0;
-    node_info_rsp.hardware_version.minor = 1;
+    getUniqueID(res.hardware_version.unique_id);
 
-    getUniqueID(node_info_rsp.hardware_version.unique_id);
+    res.status = node_status_msg_;
+    res.status.uptime_sec = latest_time_ms_ / 1000;
 
-    node_info_rsp.status = this->node_status_msg;
-    node_info_rsp.status.uptime_sec = latest_time_ms_ / 1000;
-
-    this->node_info_server.respond(transfer, node_info_rsp);
+    node_info_server_.respond(transfer, res);
 }
 
-void DronecanNode::sendLogMessage(const char* source, const char* text, uint8_t level)
-{
+void DronecanNode::sendLogMessage(const char* source,
+                                  const char* text,
+                                  uint8_t level) {
     uavcan_protocol_debug_LogMessage msg{};
     msg.level.value = level;
 
-    msg.source.len = snprintf(
-        reinterpret_cast<char*>(msg.source.data),
-        sizeof(msg.source.data),
-        "%s",
-        source
-    );
-    msg.text.len = snprintf(
-        reinterpret_cast<char*>(msg.text.data),
-        sizeof(msg.text.data),
-        "%s",
-        text
-    );
+    msg.source.len = snprintf(reinterpret_cast<char*>(msg.source.data),
+                              sizeof(msg.source.data),
+                              "%s", source);
+    msg.text.len = snprintf(reinterpret_cast<char*>(msg.text.data),
+                            sizeof(msg.text.data),
+                            "%s", text);
 
-    this->log_pub.broadcast(msg);
+    log_pub_.broadcast(msg);
 }
 
-void DronecanNode::handle_param_GetSet(const CanardRxTransfer& transfer, const uavcan_protocol_param_GetSetRequest& req)
-{
+void DronecanNode::handle_param_GetSet(const CanardRxTransfer& transfer,
+                                       const uavcan_protocol_param_GetSetRequest& req) {
     auto res = param_store_->GetSet(req);
-    this->param_server.respond(transfer, res);
-
-    return;
+    param_server_.respond(transfer, res);
 }
 
-void DronecanNode::handle_GetTransportStats(const CanardRxTransfer& transfer, const uavcan_protocol_GetTransportStatsRequest& req){
+void DronecanNode::handle_GetTransportStats(const CanardRxTransfer& transfer,
+                                            const uavcan_protocol_GetTransportStatsRequest& req) {
+    (void)req;
     uavcan_protocol_GetTransportStatsResponse res{};
-
-    // TODO
-
-    this->transport_stats_server.respond(transfer, res);
+    // TODO: Fill with actual transport statistics
+    transport_stats_server_.respond(transfer, res);
 }
 
-void DronecanNode::handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, const uavcan_protocol_param_ExecuteOpcodeRequest& req)
-{
+void DronecanNode::handle_param_ExecuteOpcode(const CanardRxTransfer& transfer,
+                                              const uavcan_protocol_param_ExecuteOpcodeRequest& req) {
     uavcan_protocol_param_ExecuteOpcodeResponse res{};
     res.ok = false;
 
@@ -114,17 +108,17 @@ void DronecanNode::handle_param_ExecuteOpcode(const CanardRxTransfer& transfer, 
         param_store_->ResetAll();
         res.ok = true;
     } else if (req.opcode == UAVCAN_PROTOCOL_PARAM_EXECUTEOPCODE_REQUEST_OPCODE_SAVE) {
-        if (persistent_config_ != nullptr) {
+        if (persistent_config_) {
             persistent_config_->Write();
             res.ok = true;
         }
     }
 
-    this->param_opcode_server.respond(transfer, res);
+    param_opcode_server_.respond(transfer, res);
 }
 
-void DronecanNode::handle_tunnel_Broadcast(const CanardRxTransfer& transfer, const uavcan_tunnel_Broadcast& req)
-{
+void DronecanNode::handle_tunnel_Broadcast(const CanardRxTransfer& transfer,
+                                           const uavcan_tunnel_Broadcast& req) {
     if (dronecan_tunnel_) {
         dronecan_tunnel_->handle_tunnel_Broadcast(transfer, req);
     }
@@ -134,7 +128,7 @@ void DronecanNode::attachTunnel(MoteusDronecanTunnel* tunnel) {
     dronecan_tunnel_ = tunnel;
     if (tunnel) {
         tunnel->set_uavcan_pub_callback([this](uavcan_tunnel_Broadcast& msg) {
-            return this->tunnel_pub_.broadcast(msg);
+            return tunnel_pub_.broadcast(msg);
         });
     }
 }
