@@ -714,6 +714,48 @@ class BoardDebug::Impl {
       return;
     }
 
+    if (cmd_text == "sinvel"){
+      const auto maybe_vel = Strtof(tokenizer.next());
+      const auto maybe_scale = Strtof(tokenizer.next());
+      const auto maybe_phase = Strtof(tokenizer.next());
+      const auto maybe_vel_sq_ff = Strtof(tokenizer.next());
+      const auto maybe_max_t = Strtof(tokenizer.next());
+
+
+      if (!maybe_vel ||
+          !maybe_scale ||
+          !maybe_phase ||
+          !maybe_vel_sq_ff ||
+          !maybe_max_t) {
+        WriteMessage(response, "ERR missing vel/scale/phase/vel_sq_ff/torque\r\n");
+        return;
+      }
+
+      const float vel = *maybe_vel;
+      const float scale = *maybe_scale;
+      const float phase = *maybe_phase;
+      const float vel_sq_ff = *maybe_vel_sq_ff;
+      const float max_t = *maybe_max_t;
+
+      BldcServo::CommandData command;
+      command.timeout_s = std::numeric_limits<float>::quiet_NaN();
+      if (!ParseOptions(&command, &tokenizer, "pdisftavo")) {
+        WriteMessage(response, "ERR unknown option\r\n");
+        return;
+      }
+
+      command.mode = BldcServo::Mode::kSinusoidalVelocity;
+      command.velocity = vel;
+      command.sinusoidal_velocity_scale = scale;
+      command.sinusoidal_velocity_phase_rad = phase;
+      command.feedforward_velocity_sq = vel_sq_ff;
+      command.max_torque_Nm = max_t;
+
+      bldc_->Command(command);
+      WriteOk(response);
+      return;
+    }
+
     if (cmd_text == "within") {
       const auto maybe_min = Strtof(tokenizer.next());
       const auto maybe_max = Strtof(tokenizer.next());

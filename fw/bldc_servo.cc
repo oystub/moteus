@@ -1235,7 +1235,8 @@ class BldcServo::Impl {
       case kCurrent:
       case kPosition:
       case kZeroVelocity:
-      case kStayWithinBounds: {
+      case kStayWithinBounds:
+      case kSinusoidalVelocity: {
         return true;
       }
       case kPositionTimeout: {
@@ -1268,7 +1269,8 @@ class BldcServo::Impl {
       case kZeroVelocity:
       case kStayWithinBounds:
       case kMeasureInductance:
-      case kBrake: {
+      case kBrake:
+      case kSinusoidalVelocity: {
         return true;
       }
       case kPositionTimeout: {
@@ -1309,7 +1311,8 @@ class BldcServo::Impl {
       case kZeroVelocity:
       case kStayWithinBounds:
       case kMeasureInductance:
-      case kBrake: {
+      case kBrake:
+      case kSinusoidalVelocity: {
         switch (status_.mode) {
           case kNumModes: {
             MJ_ASSERT(false);
@@ -1341,7 +1344,8 @@ class BldcServo::Impl {
           case kZeroVelocity:
           case kStayWithinBounds:
           case kMeasureInductance:
-          case kBrake: {
+          case kBrake:
+          case kSinusoidalVelocity: {
             if ((data->mode == kPosition || data->mode == kStayWithinBounds) &&
                 !data->ignore_position_bounds &&
                 ISR_IsOutsideLimits()) {
@@ -1441,6 +1445,7 @@ class BldcServo::Impl {
         case kPositionTimeout:
         case kZeroVelocity:
         case kStayWithinBounds:
+        case kSinusoidalVelocity:
           return true;
         case kStopped: {
           return status_.cooldown_count != 0;
@@ -1479,6 +1484,7 @@ class BldcServo::Impl {
         case kPositionTimeout:
         case kZeroVelocity:
         case kStayWithinBounds:
+        case kSinusoidalVelocity:
           return true;
       }
       return false;
@@ -1623,6 +1629,10 @@ class BldcServo::Impl {
       }
       case kBrake: {
         ISR_DoBrake();
+        break;
+      }
+      case kSinusoidalVelocity: {
+        ISR_DoSinusoidalVelocity(sin_cos, data);
         break;
       }
     }
@@ -2076,6 +2086,89 @@ class BldcServo::Impl {
     ISR_DoPositionCommon(sin_cos, data, apply_options, data->max_torque_Nm,
                          data->feedforward_Nm, data->velocity);
   }
+
+  void ISR_DoSinusoidalVelocity(const SinCos& sin_cos_el, CommandData* data) MOTEUS_CCM_ATTRIBUTE {
+    // Require valid position.
+    if (!position_.position_relative_valid) {
+      status_.mode = kFault;
+      status_.fault = errc::kPositionInvalid;
+      return;
+    }
+    if (position_.error != MotorPosition::Status::kNone) {
+      status_.mode = kFault;
+      status_.fault = errc::kEncoderFault;
+      return;
+    }
+
+    // We use the CORDIC coprocessor to calculate the sinusoidal term, avoiding expensive std::sin calls
+    // which can be hundreds of cycles.
+    int32_t pos_int = static_cast<int32_t>(position_.position);
+    float pos_frac = position_.position - static_cast<float>(pos_int);
+    if (pos_frac < 0.0f) pos_frac += 1.0f; // [0,1)
+    constexpr float kQ32PerTurn = 4294967296.0f;
+    const uint32_t theta_q32 = static_cast<uint32_t>(pos_frac * kQ32PerTurn);
+
+    // Consider caching phase_q31 when the command is issued to save a few cycles in the ISR.
+    const int32_t phase_q31 = RadiansToQ31(data->sinusoidal_velocity_phase_rad);
+    const int32_t sum_q31 = static_cast<int32_t>(theta_q32 + static_cast<uint32_t>(phase_q31));
+    const float sin_mod = cordic_(sum_q31).s;
+    const float sinusoidal_term = data->sinusoidal_velocity_scale * sin_mod;
+    const float command_velocity = data->velocity * (1.0f + sinusoidal_term);
+
+    // Enforce slew rate limits on the velocity command.
+    BldcServoPosition::DoVelocityModeLimits(&status_, &config_, rate_config_.rate_hz, data, command_velocity);
+
+    // Enforce motor velocity limits
+    if (status_.control_velocity > status_.motor_max_velocity) {
+      status_.control_velocity = status_.motor_max_velocity;
+    } else if (*status_.control_velocity < -status_.motor_max_velocity) {
+      status_.control_velocity = -status_.motor_max_velocity;
+    }
+
+    auto velocity_command = *status_.control_velocity;
+    float feedforward_Nm = data->feedforward_Nm;
+    feedforward_Nm += data->feedforward_velocity_sq * velocity_command * velocity_command;
+
+    const float unlimited_torque_Nm = pi_velocity_.Apply(position_.velocity, velocity_command, rate_config_.rate_hz) + feedforward_Nm;
+    const float limited_torque_Nm = Limit(unlimited_torque_Nm, -data->max_torque_Nm, data->max_torque_Nm);
+
+    control_.torque_Nm = limited_torque_Nm;
+    status_.torque_error_Nm = status_.torque_Nm - control_.torque_Nm;
+
+    // Torque to current conversion.
+    const float limited_q_A = torque_to_current(limited_torque_Nm * motor_position_->config()->rotor_to_output_ratio);
+
+    // We ignore cogging torque compensation in this mode, as it is meant for high
+    // speed operation, where cogging torque disturbances are negligible.
+
+    // Limit the current to the maximum allowed value.
+    const float q_A =
+      is_torque_constant_configured() ?
+      limited_q_A :
+      Limit(limited_q_A, -kMaxUnconfiguredCurrent, kMaxUnconfiguredCurrent);
+
+    const float d_A = [&]() MOTEUS_CCM_ATTRIBUTE {
+      const auto error = (
+          status_.filt_1ms_bus_V - flux_brake_min_voltage_);
+
+      if (error <= 0.0f) {
+        return 0.0f;
+      }
+
+      return (error / config_.flux_brake_resistance_ohm);
+    }();
+
+
+#ifdef MOTEUS_PERFORMANCE_MEASURE
+    status_.dwt.control_done_pos = DWT->CYCCNT;
+#endif
+
+    ISR_DoCurrent(
+        sin_cos_el, d_A, q_A,
+        velocity_command / motor_position_->config()->rotor_to_output_ratio, true);
+  }
+
+  
 
   void ISR_DoPositionCommon(
       const SinCos& sin_cos, CommandData* data,
@@ -2546,6 +2639,7 @@ class BldcServo::Impl {
   SimplePI pid_d_{&config_.pid_dq, &status_.pid_d};
   SimplePI pid_q_{&config_.pid_dq, &status_.pid_q};
   PID pid_position_{&config_.pid_position, &status_.pid_position};
+  SimplePI pi_velocity_{&config_.pi_velocity, &status_.pi_velocity};
 
   USART_TypeDef* debug_uart_ = nullptr;
   USART_TypeDef* onboard_debug_uart_ = nullptr;
