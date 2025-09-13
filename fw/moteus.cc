@@ -197,7 +197,7 @@ int main(void) {
 
   // We make this static to move it out of the stack and into .bss/.data SRAM,
   // since we are running out of stack space but still have plenty of RAM available.
-  static micro::SizedPool<40000> pool;
+  static micro::SizedPool<45000> pool;
 
   std::optional<HardwareUart> rs485;
   if (g_hw_pins.uart_tx != NC) {
@@ -314,7 +314,7 @@ int main(void) {
       });
   persistent_config.Register("tunnel", moteus_tunnel.config(), [](){});
 
-  FdcanCanardInterface fdcan_canard_interface(0, pool, 2048, fdcan);
+  FdcanCanardInterface fdcan_canard_interface(0, pool, 4096, fdcan);
   DronecanParamStore dronecan_param_store(&pool);
   dronecan_param_store.Register(moteus_tunnel.config());
 
