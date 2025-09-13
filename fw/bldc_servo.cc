@@ -634,6 +634,12 @@ class BldcServo::Impl {
     __enable_irq();
   }
 
+  void SetSpeedLogger(SpeedLogger* logger) {
+    __disable_irq();
+    speed_logger_ = logger;
+    __enable_irq();
+  }
+
  private:
   void ConfigurePwmIrq() {
     // NOTE: We don't use micro::CallbackTable here because we need the
@@ -969,6 +975,20 @@ class BldcServo::Impl {
 #endif
 
     ISR_MaybeEmitDebug();
+
+#ifdef MOTEUS_PERFORMANCE_MEASURE
+    status_.dwt.debug_done = DWT->CYCCNT;
+#endif
+    if (speed_logger_) {
+      speed_logger_->poll();
+      if (speed_logger_->shouldLog()){
+        speed_logger_->logValue<float>(status_.velocity);
+        speed_logger_->logValue<float>(status_.pi_velocity.desired);
+        speed_logger_->logValue<float>(status_.pi_velocity.command);
+        speed_logger_->logValue<float>(control_.torque_Nm);
+        speed_logger_->logValue<float>(status_.torque_Nm);
+      }
+    }
 
 #ifdef MOTEUS_PERFORMANCE_MEASURE
     status_.dwt.done = DWT->CYCCNT;
@@ -2718,6 +2738,8 @@ class BldcServo::Impl {
   const bool family2_ = (g_measured_hw_family == 2);
   const bool family3_ = (g_measured_hw_family == 3);
 
+  SpeedLogger* speed_logger_ = nullptr;
+
   static Impl* g_impl_;
 };
 
@@ -2804,4 +2826,7 @@ void BldcServo::Fault(moteus::errc fault_code) {
   impl_->Fault(fault_code);
 }
 
+void BldcServo::SetSpeedLogger(SpeedLogger* logger) {
+  impl_->SetSpeedLogger(logger);
+}
 }

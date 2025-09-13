@@ -20,6 +20,7 @@
 #include "mjlib/multiplex/micro_server.h"
 
 #include "fw/bldc_servo.h"
+#include "fw/speed_logger.h"
 
 namespace moteus {
 
@@ -30,7 +31,8 @@ class BoardDebug {
              mjlib::micro::CommandManager*,
              mjlib::micro::TelemetryManager*,
              mjlib::multiplex::MicroServer*,
-             BldcServo* bldc_servo);
+             BldcServo* bldc_servo,
+             SpeedLogger* speed_logger);
   ~BoardDebug();
 
   void PollMillisecond();

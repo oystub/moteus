@@ -34,6 +34,7 @@
 #include "fw/fdcan_canard_interface.h"
 #include "fw/firmware_info.h"
 #include "fw/git_info.h"
+#include "fw/speed_logger.h"
 #include "fw/millisecond_timer.h"
 #include "fw/moteus_controller.h"
 #include "fw/moteus_hw.h"
@@ -271,11 +272,14 @@ int main(void) {
       &firmware_info,
       &uuid);
 
-    // Initialize the dronecan rotor
+  SpeedLogger speed_logger(&pool);
+  persistent_config.Register("speed_logger", speed_logger.config(), [](){});
+  telemetry_manager.Register("speed_logger", speed_logger.status());
+  moteus_controller.bldc_servo()->SetSpeedLogger(&speed_logger);
 
   BoardDebug board_debug(
       &pool, &command_manager, &telemetry_manager, &multiplex_protocol,
-      moteus_controller.bldc_servo());
+      moteus_controller.bldc_servo(), &speed_logger);
 
   persistent_config.Register("id", multiplex_protocol.config(), [](){});
 

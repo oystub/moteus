@@ -193,6 +193,7 @@ struct BldcServoStatus {
     uint32_t control_done_pos = 0;
     uint32_t control_done_cur = 0;
     uint32_t control = 0;
+    uint32_t debug_done = 0;
     uint32_t done = 0;
 
     template <typename Archive>
@@ -207,6 +208,7 @@ struct BldcServoStatus {
       a->Visit(MJ_NVP(control_done_pos));
       a->Visit(MJ_NVP(control_done_cur));
       a->Visit(MJ_NVP(control));
+      a->Visit(MJ_NVP(debug_done));
       a->Visit(MJ_NVP(done));
     }
   };

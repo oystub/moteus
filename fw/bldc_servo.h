@@ -34,6 +34,7 @@
 #include "fw/motor_position.h"
 #include "fw/pid.h"
 #include "fw/simple_pi.h"
+#include "fw/speed_logger.h"
 
 namespace moteus {
 
@@ -149,6 +150,7 @@ class BldcServo {
   void RequireReindex();
   void RecapturePositionVelocity();
   void Fault(moteus::errc fault_code);
+  void SetSpeedLogger(SpeedLogger* logger);
 
  private:
   class Impl;

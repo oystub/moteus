@@ -124,9 +124,11 @@ class BoardDebug::Impl {
        micro::CommandManager* command_manager,
        micro::TelemetryManager* telemetry_manager,
        multiplex::MicroServer* multiplex_protocol,
-       BldcServo* bldc_servo)
+       BldcServo* bldc_servo,
+       SpeedLogger* speed_logger)
       : multiplex_protocol_(multiplex_protocol),
-        bldc_(bldc_servo) {
+        bldc_(bldc_servo),
+        speed_logger_(speed_logger) {
     command_manager->Register(
         "d", std::bind(&Impl::HandleCommand, this,
                        std::placeholders::_1, std::placeholders::_2));
@@ -827,6 +829,35 @@ class BoardDebug::Impl {
       return;
     }
 
+    if (cmd_text == "speed_log"){
+      auto subcmd_text = tokenizer.next();
+
+      if (subcmd_text == "start") {
+        speed_logger_->start();
+        WriteMessage(response, "OK speed_log started\r\n");
+        return;
+
+      } else if (subcmd_text == "stop") {
+        speed_logger_->stop();
+        WriteMessage(response, "OK speed_log stopped\r\n");
+        return;
+
+      } else if (subcmd_text == "read") {
+        if (write_outstanding_) {
+          WriteMessage(response, "BUSY\r\n");
+          return;
+        }
+
+        log_response_ = response;
+        EmitLogResponse();
+        return;
+
+      } else {
+        WriteMessage(response, "ERR unknown speed_log subcommand\r\n");
+        return;
+      }
+    }
+
     if (cmd_text == "brake") {
       BldcServo::CommandData command;
       command.mode = BldcServo::Mode::kBrake;
@@ -1135,6 +1166,38 @@ class BoardDebug::Impl {
                });
   }
 
+  void EmitLogResponse(){
+    const uint16_t avail = speed_logger_->bytesPending();
+    if (avail == 0) {
+      WriteOk(log_response_);
+      return;
+    }
+    constexpr uint16_t msg_cap_bytes = static_cast<uint16_t>((sizeof(out_message_) - 3) / 2);
+    uint16_t want = std::min(msg_cap_bytes, avail);
+
+    // Read N bytes and format as hex (no spaces), one line
+    // Use a small stack buffer; clamp to a reasonable max too
+    uint8_t buf[msg_cap_bytes];
+    const uint16_t got = speed_logger_->readBytes(buf, want);
+
+    constexpr char HEX[] = "0123456789abcdef";
+    char* p = out_message_;
+    for (uint16_t i = 0; i < got; ++i) {
+      const uint8_t b = buf[i];
+      *p++ = HEX[(b >> 4) & 0xF];
+      *p++ = HEX[b & 0xF];
+    }
+    *p++ = '\r';
+    *p++ = '\n';
+    *p++ = '\0';
+
+    write_outstanding_ = true;
+    AsyncWrite(*log_response_.stream, out_message_, [this](auto) {
+      write_outstanding_ = false;
+      EmitLogResponse();
+    });
+  }
+
   void Recurse(int count) {
     recurse(count, [this](int value) { this->Recurse(value - 1); });
   }
@@ -1167,10 +1230,12 @@ class BoardDebug::Impl {
 
   multiplex::MicroServer* multiplex_protocol_;
   BldcServo* const bldc_;
+  SpeedLogger* const speed_logger_;
 
   char out_message_[64] = {};
 
   micro::CommandManager::Response cal_response_;
+  micro::CommandManager::Response log_response_;
 
   enum MotorCalMode {
     kNoMotorCal,
@@ -1261,9 +1326,10 @@ BoardDebug::BoardDebug(micro::Pool* pool,
                        micro::CommandManager* command_manager,
                        micro::TelemetryManager* telemetry_manager,
                        multiplex::MicroServer* micro_server,
-                       BldcServo* bldc_servo)
+                       BldcServo* bldc_servo,
+                       SpeedLogger* speed_logger)
     : impl_(pool, pool, command_manager, telemetry_manager,
-            micro_server, bldc_servo) {}
+            micro_server, bldc_servo, speed_logger) {}
 
 BoardDebug::~BoardDebug() {}
 
