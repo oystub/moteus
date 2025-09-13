@@ -24,6 +24,7 @@ COPTS = [
     "-gdwarf-4",
     "-DDRONECAN_CXX_WRAPPERS",
     "-DCANARD_ENABLE_CANFD=1",
+    "-DMOTEUS_PERFORMANCE_MEASURE",
 ]
 
 cc_library(
