@@ -35,17 +35,21 @@ public:
 
     void start();
     void poll(uint32_t time_ms);
+    bool isEnabled() const { return config_.enabled; }
 
     struct Config {
+        bool enabled{true};
         uint8_t node_id{42};
 
         template <typename Store>
         void RegisterParameters(Store& store) {
+            DRONECAN_PARAMETER(DC_ENABLE, enabled, 0, 0, 1);
             DRONECAN_PARAMETER(DC_NODE_ID, node_id, 42, 1, 127);
         }
 
         template <typename Archive>
         void Serialize(Archive* a) {
+            a->Visit(MJ_NVP(enabled));
             a->Visit(MJ_NVP(node_id));
         }
     };

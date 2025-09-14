@@ -234,10 +234,11 @@ int main(void) {
       return options;
     }());
 
-  MoteusDronecanTunnel moteus_tunnel{};
+  FDCanMicroServer fdcan_micro_server(&fdcan);
+  multiplex::MicroDatagramServer* datagram_server = &fdcan_micro_server;
 
   multiplex::MicroServer multiplex_protocol(
-      &pool, &moteus_tunnel,
+      &pool, datagram_server,
       []() {
         multiplex::MicroServer::Options options;
         options.max_tunnel_streams = 3;
@@ -312,6 +313,8 @@ int main(void) {
         filter_config.global_ext_action = FDCan::FilterAction::kReject;
         fdcan.ConfigureFilters(filter_config);
       });
+  
+  MoteusDronecanTunnel moteus_tunnel{};
   persistent_config.Register("tunnel", moteus_tunnel.config(), [](){});
 
   FdcanCanardInterface fdcan_canard_interface(0, pool, 4096, fdcan);
@@ -325,8 +328,12 @@ int main(void) {
 
   persistent_config.Load();
 
-  // Now, config is properly loaded, and we can initialize the dronecan functionality
-  dronecan_node.start();
+  const bool use_dronecan = dronecan_node.isEnabled();
+  if (use_dronecan) {
+    // Moteus tunnel is drop-in replacement for the fdcan micro server.
+    datagram_server = &moteus_tunnel;
+    dronecan_node.start();
+  }
 
   moteus_controller.Start();
   command_manager.AsyncStart();
@@ -342,7 +349,14 @@ int main(void) {
     multiplex_protocol.Poll();
 
     const auto new_time = timer.read_us();
-    dronecan_node.poll(timer.ms_since_boot());
+
+    if (use_dronecan) {
+      dronecan_node.poll(timer.ms_since_boot());
+    } else{
+      #if defined(TARGET_STM32G4)
+        fdcan_micro_server.Poll();
+      #endif
+    }
 
     const auto delta_us = MillisecondTimer::subtract_us(new_time, old_time);
     if (moteus_controller.bldc_servo()->config().timing_fault &&
@@ -356,6 +370,7 @@ int main(void) {
       system_info.PollMillisecond();
       moteus_controller.PollMillisecond();
       board_debug.PollMillisecond();
+      system_info.SetCanResetCount(fdcan_micro_server.can_reset_count());
       timer.AdvanceMsSinceBoot();
 
       old_time += 1000;
