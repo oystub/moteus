@@ -3,7 +3,8 @@ import moteus
 import signal
 import sys
 import pandas as pd
-import matplotlib.pyplot as plt
+import os
+import datetime
 import argparse
 from speed_log_parser import FieldType, LoggedField, decode_speedlog, row_size
 
@@ -15,6 +16,7 @@ def calculate_decimation(buf_size, log_fields, base_speed, periods, isr_speed=30
     decimation = max(1, round(duration * isr_speed / samples))
 
     return decimation, decimation / isr_speed, samples * decimation / isr_speed
+
 
 def plot_results(data: pd.DataFrame, save_file=None, show_plot=True):
     import matplotlib.pyplot as plt
@@ -142,10 +144,12 @@ def main():
                         help="Delay for rotor to spin up before logging starts [s] (default: 5.0).")
     parser.add_argument("--hide-plot", action="store_true",
                         help="Do not display plot (useful in batch runs).")
-    parser.add_argument("--save-plot", type=str, metavar="FILENAME",
-                        help="Save plot to file.")
+    parser.add_argument("--save-plot", nargs="?", const=True, metavar="FILENAME",
+                        help="Save plot to file. If no filename is given, one is generated automatically.")
     parser.add_argument("--plot-input", type=str, metavar="CSV",
                         help="Load data from CSV file instead of running the test.")
+    parser.add_argument("--save-data", nargs="?", const=True, metavar="CSV",
+                        help="Save logged data to CSV file. If no filename is given, one is generated automatically.")
 
     args = parser.parse_args()
 
@@ -154,8 +158,27 @@ def main():
     else:
         data = asyncio.run(run_test(args))
 
-    plot_results(data, save_file=args.save_plot, show_plot=not args.hide_plot)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
+    # Save data if requested
+    if args.save_data:
+        if args.save_data is True:
+            filename = f"speedlog_{timestamp}.csv"
+        else:
+            filename = args.save_data
+        data.to_csv(filename, index=False)
+        print(f"Data saved to {filename}")
+
+    # Save / show plot
+    if args.save_plot:
+        if args.save_plot is True:
+            plot_file = f"speedlog_{timestamp}.png"
+        else:
+            plot_file = args.save_plot
+    else:
+        plot_file = None
+
+    plot_results(data, save_file=plot_file, show_plot=not args.hide_plot)
 
 
 if __name__ == "__main__":
