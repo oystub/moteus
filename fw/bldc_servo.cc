@@ -2162,24 +2162,28 @@ class BldcServo::Impl {
     const int32_t phase_q31 = RadiansToQ31(data->sinusoidal_velocity_phase_rad);
     const int32_t sum_q31 = static_cast<int32_t>(theta_q32 + static_cast<uint32_t>(phase_q31));
     const float sin_mod = cordic_(sum_q31).s;
-    const float sinusoidal_term = data->sinusoidal_velocity_scale * sin_mod;
-    const float command_velocity = data->velocity * (1.0f + sinusoidal_term);
 
-    // Enforce slew rate limits on the velocity command.
+    float command_velocity = data->velocity;
+    const float sinusoidal_term = data->sinusoidal_velocity_scale * sin_mod;
+
+    // Enforce slew rate limits on the velocity command. This sets status_.control_velocity.
+    if (!status_.control_velocity) {
+      status_.control_velocity = position_.velocity;
+    }
     BldcServoPosition::DoVelocityModeLimits(&status_, &config_, rate_config_.rate_hz, data, command_velocity);
 
-    // Enforce motor velocity limits
-    if (status_.control_velocity > status_.motor_max_velocity) {
-      status_.control_velocity = status_.motor_max_velocity;
-    } else if (*status_.control_velocity < -status_.motor_max_velocity) {
-      status_.control_velocity = -status_.motor_max_velocity;
-    }
+    // Apply the sinusoidal modulation afterwards to avoid limiting the slew rate of the modulation itself.
+    float modulated_velocity = *status_.control_velocity * (1.0f + sinusoidal_term);
 
-    auto velocity_command = *status_.control_velocity;
-    float feedforward_Nm = data->feedforward_Nm;
-    feedforward_Nm += data->feedforward_velocity_sq * velocity_command * velocity_command;
+    // The base feedforward uses the base velocity, not the modulated one.
+    const float abs_vel = std::abs(*status_.control_velocity);
+    const float sign_vel = (*status_.control_velocity >= 0.0f) ? 1.0f : -1.0f;
+    const float base_ff = config_.sinvel_base_ff[0]
+        + config_.sinvel_base_ff[1] * abs_vel
+        + config_.sinvel_base_ff[2] * abs_vel * abs_vel;
 
-    const float unlimited_torque_Nm = pi_velocity_.Apply(position_.velocity, velocity_command, rate_config_.rate_hz) + feedforward_Nm;
+    float feedforward_Nm = data->feedforward_Nm + base_ff * sign_vel;
+    const float unlimited_torque_Nm = pi_velocity_.Apply(position_.velocity, modulated_velocity, rate_config_.rate_hz) + feedforward_Nm;
     const float limited_torque_Nm = Limit(unlimited_torque_Nm, -data->max_torque_Nm, data->max_torque_Nm);
 
     control_.torque_Nm = limited_torque_Nm;
@@ -2215,7 +2219,7 @@ class BldcServo::Impl {
 
     ISR_DoCurrent(
         sin_cos_el, d_A, q_A,
-        velocity_command / motor_position_->config()->rotor_to_output_ratio, true);
+        modulated_velocity / motor_position_->config()->rotor_to_output_ratio, true);
   }
 
   

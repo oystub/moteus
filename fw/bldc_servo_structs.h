@@ -347,7 +347,6 @@ struct BldcServoCommandData {
   // For kSinusoidalVelocity
   float sinusoidal_velocity_scale = 0.0f;
   float sinusoidal_velocity_phase_rad = 0.0f;
-  float feedforward_velocity_sq = 0.0f;
 
   /////// NOT SERIALIZED
   bool synthetic_theta = false;
@@ -391,7 +390,6 @@ struct BldcServoCommandData {
     a->Visit(MJ_NVP(meas_ind_period));
     a->Visit(MJ_NVP(sinusoidal_velocity_scale));
     a->Visit(MJ_NVP(sinusoidal_velocity_phase_rad));
-    a->Visit(MJ_NVP(feedforward_velocity_sq));
   }
 };
 
@@ -597,6 +595,9 @@ struct BldcServoConfig {
   // debug UART at full control rate.
   uint32_t emit_debug = 0;
 
+  // Second degree base velocity feedforward coefficients.
+  std::array<float, 3> sinvel_base_ff = {0.0f, 0.0f, 0.0f};
+
   BldcServoConfig() {
     pid_dq.kp = 0.005f;
     pid_dq.ki = 30.0f;
@@ -658,6 +659,7 @@ struct BldcServoConfig {
     a->Visit(MJ_NVP(velocity_zero_capture_threshold));
     a->Visit(MJ_NVP(timing_fault));
     a->Visit(MJ_NVP(emit_debug));
+    a->Visit(MJ_NVP(sinvel_base_ff));
   }
 
   static float invalid_float() {

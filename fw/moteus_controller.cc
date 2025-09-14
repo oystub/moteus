@@ -291,8 +291,6 @@ enum class Register {
   kCommandIlimitScale = 0x02b,
   kCommandFixedCurrentOverride = 0x02c,
   kCommandIgnorePositionBounds = 0x02d,
-  kCommandSinusoidalVelocityScale = 0x02e,
-  kCommandSinusoidalVelocityPhase = 0x02f,
 
   kPositionKp = 0x030,
   kPositionKi = 0x031,
@@ -381,6 +379,9 @@ enum class Register {
   kUuidMask2 = 0x155,
   kUuidMask3 = 0x156,
   kUuidMask4 = 0x157,
+
+  kCommandSinusoidalVelocityScale = 0x160,
+  kCommandSinusoidalVelocityPhase = 0x161
 };
 
 aux::AuxHardwareConfig GetAux1HardwareConfig() {
@@ -1028,12 +1029,21 @@ class MoteusController::Impl : public multiplex::MicroServer::Server {
         return ScalePwm(command_.ilimit_scale, type);
       }
       case Register::kPositionKp: {
+        if (bldc_.status().mode == kSinusoidalVelocity){
+          return ScaleTorque(bldc_.status().pi_velocity.p, type);
+        }
         return ScaleTorque(bldc_.status().pid_position.p, type);
       }
       case Register::kPositionKi: {
+        if (bldc_.status().mode == kSinusoidalVelocity){
+          return ScaleTorque(bldc_.status().pi_velocity.integral, type);
+        }
         return ScaleTorque(bldc_.status().pid_position.integral, type);
       }
       case Register::kPositionKd: {
+        if (bldc_.status().mode == kSinusoidalVelocity){
+          return ScaleTorque(0.f, type);
+        }
         return ScaleTorque(bldc_.status().pid_position.d, type);
       }
       case Register::kPositionFeedforward: {
