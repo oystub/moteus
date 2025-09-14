@@ -979,15 +979,12 @@ class BldcServo::Impl {
 #ifdef MOTEUS_PERFORMANCE_MEASURE
     status_.dwt.debug_done = DWT->CYCCNT;
 #endif
-    if (speed_logger_) {
-      speed_logger_->poll();
-      if (speed_logger_->shouldLog()){
-        speed_logger_->logValue<float>(status_.velocity);
-        speed_logger_->logValue<float>(status_.pi_velocity.desired);
-        speed_logger_->logValue<float>(status_.pi_velocity.command);
-        speed_logger_->logValue<float>(control_.torque_Nm);
-        speed_logger_->logValue<float>(status_.torque_Nm);
-      }
+    if (speed_logger_ && speed_logger_->isrStep()) {
+      speed_logger_->isrLogValue<float>(status_.velocity);
+      speed_logger_->isrLogValue<float>(status_.pi_velocity.desired);
+      speed_logger_->isrLogValue<float>(status_.pi_velocity.command);
+      speed_logger_->isrLogValue<float>(control_.torque_Nm);
+      speed_logger_->isrLogValue<float>(status_.torque_Nm);
     }
 
 #ifdef MOTEUS_PERFORMANCE_MEASURE

@@ -840,7 +840,11 @@ class BoardDebug::Impl {
 
       } else if (subcmd_text == "read") {
         if (write_outstanding_) {
-          WriteMessage(response, "BUSY\r\n");
+          WriteMessage(response, "ERR BUSY\r\n");
+          return;
+        }
+        if (speed_logger_->status()->running) {
+          WriteMessage(response, "ERR speed_log still running\r\n");
           return;
         }
 
@@ -1163,22 +1167,21 @@ class BoardDebug::Impl {
   }
 
   void EmitLogResponse(){
-    const uint16_t avail = speed_logger_->bytesPending();
-    if (avail == 0) {
-      WriteOk(log_response_);
-      return;
-    }
-    constexpr uint16_t msg_cap_bytes = static_cast<uint16_t>((sizeof(out_message_) - 3) / 2);
-    uint16_t want = std::min(msg_cap_bytes, avail);
+    // Account for conversion to hex, plus \r\n\0
+    constexpr uint32_t msg_cap_bytes = static_cast<uint32_t>((sizeof(out_message_) - 3) / 2);
 
     // Read N bytes and format as hex (no spaces), one line
     // Use a small stack buffer; clamp to a reasonable max too
     uint8_t buf[msg_cap_bytes];
-    const uint16_t got = speed_logger_->readBytes(buf, want);
+    const uint32_t got = speed_logger_->drain(buf, msg_cap_bytes);
+    if (got == 0) {
+      WriteOk(log_response_);
+      return;
+    }
 
     constexpr char HEX[] = "0123456789abcdef";
     char* p = out_message_;
-    for (uint16_t i = 0; i < got; ++i) {
+    for (uint32_t i = 0; i < got; ++i) {
       const uint8_t b = buf[i];
       *p++ = HEX[(b >> 4) & 0xF];
       *p++ = HEX[b & 0xF];
