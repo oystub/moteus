@@ -3,24 +3,22 @@ import moteus
 import signal
 import sys
 import pandas as pd
-import os
 import datetime
 import argparse
+import matplotlib.pyplot as plt
 from speed_log_parser import FieldType, LoggedField, decode_speedlog, row_size
 
 
 def calculate_decimation(buf_size, log_fields, base_speed, periods, isr_speed=30000) -> tuple[int, float, float]:
     """Calculate the decimation and row duration for the speed logger."""
     samples = buf_size // row_size(log_fields)
-    duration = periods / base_speed  # seconds for 'periods' periods
+    duration = periods / base_speed  # seconds for the requested number of periods
     decimation = max(1, round(duration * isr_speed / samples))
 
     return decimation, decimation / isr_speed, samples * decimation / isr_speed
 
 
-def plot_results(data: pd.DataFrame, save_file=None, show_plot=True):
-    import matplotlib.pyplot as plt
-
+def plot_data(data: pd.DataFrame, save_file=None, show_plot=True):
     fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
 
     axs[0].scatter(data["time_s"], data["velocity"], label="Measured velocity")
@@ -50,26 +48,22 @@ def plot_results(data: pd.DataFrame, save_file=None, show_plot=True):
 
     plt.close(fig)
 
-def set_signal_handler(loop, stop_event, controller):
-    first = True
 
+def set_signal_handler(loop, controller):
     def handler():
-        nonlocal first
-        if first:
-            first = False
-            print("Signal received, stopping...")
-            stop_event.set()
+        print("Signal received, stopping immediately...")
+        try:
             controller.set_stop()
-        else:
-            print("Second signal received, exiting immediately")
-            loop.stop()
-            controller.set_stop()
-            sys.exit(1)
+        except Exception:
+            pass
+        loop.stop()
+        sys.exit(1)
+
     loop.add_signal_handler(signal.SIGINT, handler)
 
 
 async def run_test(args):
-    transport = moteus.PythonCan(interface="socketcan", channel="vcan1", fd=True)
+    transport = moteus.PythonCan(interface=args.can_iface, channel=args.can_chan, fd=True)
     controller = moteus.Controller(id=1, transport=transport)
     command_stream = moteus.Stream(controller)
 
@@ -78,8 +72,7 @@ async def run_test(args):
 
     # Setup signal handling for graceful shutdown
     loop = asyncio.get_running_loop()
-    stop_event = asyncio.Event()
-    set_signal_handler(loop, stop_event, controller)
+    set_signal_handler(loop, controller)
 
     fields = [
         LoggedField("velocity", FieldType.FLOAT32),
@@ -110,26 +103,27 @@ async def run_test(args):
     print("WARNING: Rotor will move! Ensure it is safe to do so.")
     input("Press Enter to continue...")
 
-    await command_stream.command(f"d sinvel {args.base_speed:.3f} {args.amplitude:.3f} {args.max_torque:.3f}".encode("utf-8"))
+    await command_stream.command(
+        f"d sinvel {args.base_speed:.3f} {args.amplitude:.3f} {args.max_torque:.3f}".encode("utf-8")
+    )
     await asyncio.sleep(args.start_delay)
 
-    await command_stream.command(f"d start_logger".encode("utf-8"))
+    await command_stream.command(b"d start_logger")
     await asyncio.sleep(total_duration)
-    await command_stream.command(f"d stop_logger".encode("utf-8"))
-    await command_stream.command(f"d stop".encode("utf-8"))
+    await command_stream.command(b"d stop_logger")
+    await command_stream.command(b"d stop")
 
     # Get the results
     res = await command_stream.command(b"d speed_log read")
     data = decode_speedlog(res.decode("utf-8"), fields)
 
-    # Append a "time (s)" column
     data.insert(0, "time_s", [i * row_duration for i in range(len(data))])
 
-    plot_results(data)
+    return data
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run a sinusoidal velocity test with moteus speed logger.")
+    parser = argparse.ArgumentParser(description="Test performance of sinusoidal velocity tracking.")
     parser.add_argument("--base-speed", type=float, required=True,
                         help="Rotation speed in rps (required).")
     parser.add_argument("--amplitude", type=float, required=True,
@@ -142,6 +136,10 @@ def main():
                         help="Number of periods to capture in the buffer (default: 3).")
     parser.add_argument("--start-delay", type=float, default=5.0,
                         help="Delay for rotor to spin up before logging starts [s] (default: 5.0).")
+    parser.add_argument("--can-iface", type=str, default="socketcan",
+                        help="CAN interface (default: socketcan).")
+    parser.add_argument("--can-chan", type=str, default="vcan1",
+                        help="CAN channel (default: vcan1).")
     parser.add_argument("--hide-plot", action="store_true",
                         help="Do not display plot (useful in batch runs).")
     parser.add_argument("--save-plot", nargs="?", const=True, metavar="FILENAME",
@@ -153,6 +151,9 @@ def main():
 
     args = parser.parse_args()
 
+    if not (0 < args.amplitude < 1.0):
+        parser.error("--amplitude must be between 0 and 1.0")
+
     if args.plot_input:
         data = pd.read_csv(args.plot_input)
     else:
@@ -163,7 +164,7 @@ def main():
     # Save data if requested
     if args.save_data:
         if args.save_data is True:
-            filename = f"speedlog_{timestamp}.csv"
+            filename = f"sinusoidal_response_{timestamp}.csv"
         else:
             filename = args.save_data
         data.to_csv(filename, index=False)
@@ -172,13 +173,13 @@ def main():
     # Save / show plot
     if args.save_plot:
         if args.save_plot is True:
-            plot_file = f"speedlog_{timestamp}.png"
+            plot_file = f"sinusoidal_response_{timestamp}.png"
         else:
             plot_file = args.save_plot
     else:
         plot_file = None
 
-    plot_results(data, save_file=plot_file, show_plot=not args.hide_plot)
+    plot_data(data, save_file=plot_file, show_plot=not args.hide_plot)
 
 
 if __name__ == "__main__":
