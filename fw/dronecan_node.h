@@ -5,6 +5,8 @@
 #include <array>
 
 // DroneCAN message and service types
+#include <uavcan.equipment.esc.RawCommand.h>
+#include <uavcan.equipment.actuator.ArrayCommand.h>
 #include <uavcan.protocol.param.ExecuteOpcode.h>
 #include <uavcan.protocol.param.GetSet.h>
 #include <uavcan.protocol.NodeStatus.h>
@@ -22,6 +24,7 @@
 #include "dronecan_param_store.h"
 #include "moteus_controller.h"
 #include "fw/dronecan_tunnel.h"
+#include "fw/dronecan_rotor.h"
 
 // Moteus specific
 #include "mjlib/micro/persistent_config.h"
@@ -58,6 +61,7 @@ public:
 
     void sendLogMessage(const char* source, const char* text, uint8_t level);
     void attachTunnel(MoteusDronecanTunnel* tunnel);
+    void attachRotor(DroneCanRotor* rotor);
 
 private:
     void sendNodeStatus();
@@ -75,6 +79,7 @@ private:
     Config config_{};
 
     MoteusDronecanTunnel* dronecan_tunnel_{nullptr};
+    DroneCanRotor* dronecan_rotor_{nullptr};
 
     Canard::Publisher<uavcan_protocol_NodeStatus> node_status_pub_{*canard_iface_};
     Canard::Publisher<uavcan_protocol_debug_LogMessage> log_pub_{*canard_iface_};
@@ -99,4 +104,12 @@ private:
     Canard::ObjCallback<DronecanNode, uavcan_tunnel_Broadcast> tunnel_broadcast_cb_{this, &DronecanNode::handle_tunnel_Broadcast};
     Canard::Subscriber<uavcan_tunnel_Broadcast> tunnel_sub_{tunnel_broadcast_cb_, 0};
     Canard::Publisher<uavcan_tunnel_Broadcast> tunnel_pub_{*canard_iface_};
+
+    void handle_esc_RawCommand(const CanardRxTransfer& transfer, const uavcan_equipment_esc_RawCommand& msg);
+    Canard::ObjCallback<DronecanNode, uavcan_equipment_esc_RawCommand> esc_rawcommand_cb_{this, &DronecanNode::handle_esc_RawCommand};
+    Canard::Subscriber<uavcan_equipment_esc_RawCommand> esc_rawcommand_sub_{esc_rawcommand_cb_, 0};
+
+    void handle_actuator_ArrayCommand(const CanardRxTransfer& transfer, const uavcan_equipment_actuator_ArrayCommand& msg);
+    Canard::ObjCallback<DronecanNode, uavcan_equipment_actuator_ArrayCommand> actuator_arraycommand_cb_{this, &DronecanNode::handle_actuator_ArrayCommand};
+    Canard::Subscriber<uavcan_equipment_actuator_ArrayCommand> actuator_arraycommand_sub_{actuator_arraycommand_cb_, 0};
 };

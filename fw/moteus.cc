@@ -326,6 +326,10 @@ int main(void) {
   persistent_config.Register("dronecan", dronecan_node.config(), [](){});
   dronecan_param_store.Register(dronecan_node.config());
 
+  DroneCanRotor dronecan_rotor(&moteus_controller);
+  dronecan_param_store.Register(dronecan_rotor.config());
+  dronecan_node.attachRotor(&dronecan_rotor);
+
   persistent_config.Load();
 
   const bool use_dronecan = dronecan_node.isEnabled();

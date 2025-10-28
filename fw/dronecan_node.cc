@@ -132,3 +132,20 @@ void DronecanNode::attachTunnel(MoteusDronecanTunnel* tunnel) {
         });
     }
 }
+
+void DronecanNode::attachRotor(DroneCanRotor* rotor) {
+    dronecan_rotor_ = rotor;
+}
+
+void DronecanNode::handle_esc_RawCommand(const CanardRxTransfer& transfer, const uavcan_equipment_esc_RawCommand& msg) {
+    if (dronecan_rotor_) {
+        dronecan_rotor_->handle_esc_RawCommand(msg);
+    }
+}
+
+void DronecanNode::handle_actuator_ArrayCommand(const CanardRxTransfer& transfer, const uavcan_equipment_actuator_ArrayCommand& msg) {
+    if (dronecan_rotor_) {
+        dronecan_rotor_->handle_actuator_ArrayCommand(msg);
+    }
+}
+
