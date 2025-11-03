@@ -672,8 +672,8 @@ struct BldcServoConfig {
 // separate to minimize resets due to schemas changing during
 // development.
 struct BldcServoPositionConfig {
-  float position_min = -0.01f;
-  float position_max = 0.01f;
+  float position_min = std::numeric_limits<float>::quiet_NaN();
+  float position_max = std::numeric_limits<float>::quiet_NaN();
 
   template <typename Archive>
   void Serialize(Archive* a) {
