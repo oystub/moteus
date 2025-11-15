@@ -1,0 +1,35 @@
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  hicpp-*,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  performance-*,
+  portability-*,
+  readability-*,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  misc-*,
+  readability-identifier-naming,
+
+  # Specifics to match moteus codebase style,
+  -*-uppercase-literal-suffix,
+  readability-lowercase-literal-suffix,
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*'
+FormatStyle: none
+
+CheckOptions:
+  - key: modernize-use-nullptr.NullMacros
+    value: 'NULL'
+  - key: modernize-loop-convert.MinConfidence
+    value: reasonable
+  - key: modernize-use-override.StrictMode
+    value: true
+  - key: cppcoreguidelines-pro-type-member-init.IgnoreArrays
+    value: false

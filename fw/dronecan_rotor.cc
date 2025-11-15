@@ -2,16 +2,16 @@
 #include "euclidean_commands.h"
 #include <numbers>
 
-DroneCanRotor::DroneCanRotor(moteus::MoteusController* controller) : controller_(controller) {
+DroneCanRotor::DroneCanRotor(moteus::MoteusController *controller)
+    : controller_(controller) {
   cmd_.mode = moteus::BldcServoMode::kStopped;
 }
-
 
 void DroneCanRotor::poll(uint32_t time_ms) {
   // TODO: Trigger timeouts if no throttle
 }
 
-void DroneCanRotor::sendMoteusCommand(moteus::MoteusController* controller) {
+void DroneCanRotor::sendMoteusCommand(moteus::MoteusController *controller) {
   if (!controller) {
     return;
   }
@@ -30,23 +30,30 @@ void DroneCanRotor::sendMoteusCommand(moteus::MoteusController* controller) {
   controller->bldc_servo()->Command(cmd_);
 }
 
-void DroneCanRotor::handle_esc_RawCommand(const uavcan_equipment_esc_RawCommand& msg) {
+void DroneCanRotor::handle_esc_RawCommand(
+    const uavcan_equipment_esc_RawCommand &msg) {
   switch (config_.command_mode) {
-    case CommandMode::CARTESIAN_ESC: return handleCartesianEscRaw(msg);
-    case CommandMode::CARTESIAN_ACTUATOR: return handleCartesianActuatorRaw(msg);
-    case CommandMode::POLAR_ACTUATOR: return handlePolarActuatorRaw(msg);
+  case CommandMode::CARTESIAN_ESC:
+    return handleCartesianEscRaw(msg);
+  case CommandMode::CARTESIAN_ACTUATOR:
+    return handleCartesianActuatorRaw(msg);
+  case CommandMode::POLAR_ACTUATOR:
+    return handlePolarActuatorRaw(msg);
   }
 }
 
-void DroneCanRotor::handleCartesianEscRaw(const uavcan_equipment_esc_RawCommand& msg) {
+void DroneCanRotor::handleCartesianEscRaw(
+    const uavcan_equipment_esc_RawCommand &msg) {
   float xyz[3]{};
 
   for (int i = 0; i < AxisIdx::AXIS_COUNT; ++i) {
     const int idx = config_.cartesian_cmd_idx[i];
-    if (!validIdx(idx, msg.cmd.len)) continue;
+    if (!validIdx(idx, msg.cmd.len))
+      continue;
 
     float val = normalizeEsc(msg.cmd.data[idx]);
-    if (isNeg(static_cast<AxisIdx>(i))) val = -val;
+    if (isNeg(static_cast<AxisIdx>(i)))
+      val = -val;
     xyz[axis(static_cast<AxisIdx>(i))] += val;
   }
 
@@ -56,27 +63,33 @@ void DroneCanRotor::handleCartesianEscRaw(const uavcan_equipment_esc_RawCommand&
   cartesian_cmd_.z = std::clamp(xyz[2], -1.0f, 0.0f);
 }
 
-void DroneCanRotor::handleCartesianActuatorRaw(const uavcan_equipment_esc_RawCommand& msg) {
-  // Only get the Z axis from RawCommand. The other axes are handled via ArrayCommand.
+void DroneCanRotor::handleCartesianActuatorRaw(
+    const uavcan_equipment_esc_RawCommand &msg) {
+  // Only get the Z axis from RawCommand. The other axes are handled via
+  // ArrayCommand.
   float z = 0.f;
 
   const int z_pos = config_.cartesian_cmd_idx[Z_POS];
   const int z_neg = config_.cartesian_cmd_idx[Z_NEG];
 
-  if (validIdx(z_pos, msg.cmd.len)) z += normalizeEsc(msg.cmd.data[z_pos]);
-  if (validIdx(z_neg, msg.cmd.len)) z -= normalizeEsc(msg.cmd.data[z_neg]);
+  if (validIdx(z_pos, msg.cmd.len))
+    z += normalizeEsc(msg.cmd.data[z_pos]);
+  if (validIdx(z_neg, msg.cmd.len))
+    z -= normalizeEsc(msg.cmd.data[z_neg]);
 
   cartesian_cmd_.z = std::clamp(z, -1.0f, 0.0f);
   processCartesianCommand();
 }
 
-void DroneCanRotor::handlePolarActuatorRaw(const uavcan_equipment_esc_RawCommand& msg) {
-  // Only get the thrust from RawCommand. Azimuth and Elevation come from ArrayCommand.
-  // In polar mode, positive thrust direction is up (negative Z) instead of down.
+void DroneCanRotor::handlePolarActuatorRaw(
+    const uavcan_equipment_esc_RawCommand &msg) {
+  // Only get the thrust from RawCommand. Azimuth and Elevation come from
+  // ArrayCommand. In polar mode, positive thrust direction is up (negative Z)
+  // instead of down.
   float t = 0.f;
 
   const int thrust_idx = config_.polar_idx[PolarIdx::THRUST];
-  if (validIdx(thrust_idx, msg.cmd.len)){
+  if (validIdx(thrust_idx, msg.cmd.len)) {
     t = normalizeEsc(msg.cmd.data[thrust_idx]); // negate for upward thrust
   }
 
@@ -84,17 +97,23 @@ void DroneCanRotor::handlePolarActuatorRaw(const uavcan_equipment_esc_RawCommand
   processPolarCommand();
 }
 
-void DroneCanRotor::handle_actuator_ArrayCommand(const uavcan_equipment_actuator_ArrayCommand& msg) {
+void DroneCanRotor::handle_actuator_ArrayCommand(
+    const uavcan_equipment_actuator_ArrayCommand &msg) {
   switch (config_.command_mode) {
-    case CommandMode::CARTESIAN_ESC: return;
-    case CommandMode::CARTESIAN_ACTUATOR: return handleCartesianActuatorArray(msg);
-    case CommandMode::POLAR_ACTUATOR: return handlePolarActuatorArray(msg);
+  case CommandMode::CARTESIAN_ESC:
+    return;
+  case CommandMode::CARTESIAN_ACTUATOR:
+    return handleCartesianActuatorArray(msg);
+  case CommandMode::POLAR_ACTUATOR:
+    return handlePolarActuatorArray(msg);
   }
 }
 
-void DroneCanRotor::handleCartesianActuatorArray(const uavcan_equipment_actuator_ArrayCommand& msg) {
+void DroneCanRotor::handleCartesianActuatorArray(
+    const uavcan_equipment_actuator_ArrayCommand &msg) {
   // Get the X and Y axes from ArrayCommand. Z axis is handled via RawCommand.
-  // Note: We require that both x and y (and negative counterparts) be sent in the same message.
+  // Note: We require that both x and y (and negative counterparts) be sent in
+  // the same message.
 
   float x{}, y{};
 
@@ -103,8 +122,9 @@ void DroneCanRotor::handleCartesianActuatorArray(const uavcan_equipment_actuator
   const int x_neg = config_.cartesian_cmd_idx[X_NEG];
   const int y_neg = config_.cartesian_cmd_idx[Y_NEG];
 
-  for (const auto& command : msg.commands.data) {
-    if (command.command_type != UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_UNITLESS) {
+  for (const auto &command : msg.commands.data) {
+    if (command.command_type !=
+        UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_UNITLESS) {
       continue; // Unsupported command type
     }
     const int id = command.actuator_id;
@@ -125,19 +145,27 @@ void DroneCanRotor::handleCartesianActuatorArray(const uavcan_equipment_actuator
   processCartesianCommand();
 }
 
-void DroneCanRotor::handlePolarActuatorArray(const uavcan_equipment_actuator_ArrayCommand& msg) {
-  // Get Azimuth and Elevation from ArrayCommand. Thrust is handled via RawCommand.
-  for (const auto& command : msg.commands.data){
-    if (command.command_type != UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_UNITLESS){
+void DroneCanRotor::handlePolarActuatorArray(
+    const uavcan_equipment_actuator_ArrayCommand &msg) {
+  // Get Azimuth and Elevation from ArrayCommand. Thrust is handled via
+  // RawCommand.
+  for (const auto &command : msg.commands.data) {
+    if (command.command_type !=
+        UAVCAN_EQUIPMENT_ACTUATOR_COMMAND_COMMAND_TYPE_UNITLESS) {
       continue; // Unsupported command type
     }
 
     const int id = command.actuator_id;
 
     if (id == config_.polar_idx[PolarIdx::AZIMUTH]) {
-      polar_cmd_.azimuth_rad = command.command_value * std::numbers::pi_v<float>; // Scale [-1,1] to [-pi, pi]
+      polar_cmd_.azimuth_rad =
+          command.command_value *
+          std::numbers::pi_v<float>; // Scale [-1,1] to [-pi, pi]
     } else if (id == config_.polar_idx[PolarIdx::ELEVATION]) {
-      polar_cmd_.elevation_rad = command.command_value * (config_.max_elevation_deg * std::numbers::pi_v<float> / 180.0f); // Scale [-1,1] to [-max_elevation, max_elevation]
+      polar_cmd_.elevation_rad =
+          command.command_value *
+          (config_.max_elevation_deg * std::numbers::pi_v<float> /
+           180.0f); // Scale [-1,1] to [-max_elevation, max_elevation]
     }
   }
   processPolarCommand();
@@ -147,19 +175,15 @@ void DroneCanRotor::processCartesianCommand() {
   // Convert cartesian_cmd_ to polar_cmd_
   // Using the euclidean_commands.h functions
   // Leave this unimplemented for now.
-  
-  auto euclidean_params = compute_prism_dims(
-      config_.min_actuation_thrust,
-      deg2rad(config_.max_elevation_deg));
 
-  auto [T, beta, psi] = scale_command(
-      euclidean_params,
-      cartesian_cmd_.x,
-      cartesian_cmd_.y,
-      cartesian_cmd_.z);
-    polar_cmd_.thrust = T;
-    polar_cmd_.elevation_rad = beta;
-    polar_cmd_.azimuth_rad = psi;
+  auto euclidean_params = compute_prism_dims(
+      config_.min_actuation_thrust, deg2rad(config_.max_elevation_deg));
+
+  auto [T, beta, psi] = scale_command(euclidean_params, cartesian_cmd_.x,
+                                      cartesian_cmd_.y, cartesian_cmd_.z);
+  polar_cmd_.thrust = T;
+  polar_cmd_.elevation_rad = beta;
+  polar_cmd_.azimuth_rad = psi;
 
   processPolarCommand();
 }
