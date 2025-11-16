@@ -26,7 +26,8 @@ void DroneCanRotor::sendMoteusCommand(moteus::MoteusController *controller) {
   cmd_.mode = moteus::BldcServoMode::kSinusoidalVelocity;
   cmd_.velocity = sinvel_cmd_.speed_rps;
   cmd_.sinusoidal_velocity_scale = sinvel_cmd_.modulation;
-  cmd_.sinusoidal_velocity_phase_rad = sinvel_cmd_.phase;
+  cmd_.sinusoidal_velocity_phase_rad =
+      sinvel_cmd_.phase + deg2rad(config_.azimuth_offset_deg);
   controller->bldc_servo()->Command(cmd_);
 }
 
@@ -192,7 +193,7 @@ void DroneCanRotor::processPolarCommand() {
   // Convert thrust and elevation to speed and modulation
   // Leave this unimplemented for now.
 
-  sinvel_cmd_.speed_rps = thrust_to_speed(polar_cmd_.thrust);
+  sinvel_cmd_.speed_rps = thrust_to_speed(polar_cmd_.thrust) * config_.rot_dir;
   sinvel_cmd_.modulation = elevation_to_modulation(polar_cmd_.elevation_rad);
   sinvel_cmd_.phase = polar_cmd_.azimuth_rad;
 

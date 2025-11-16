@@ -3,6 +3,7 @@
 #include "dronecan_param.h"
 #include "moteus_controller.h"
 
+#include <cstdint>
 #include <uavcan.equipment.actuator.ArrayCommand.h>
 #include <uavcan.equipment.esc.RPMCommand.h>
 #include <uavcan.equipment.esc.RawCommand.h>
@@ -59,12 +60,12 @@ private:
   } sinvel_cmd_;
 
   struct Config {
-    int rot_dir = 1;
-    int thrust_dir = -1; // 1=positive z, -1=negative z
+    int8_t rot_dir = 1;
+    int8_t thrust_dir = -1; // 1=positive z, -1=negative z
+    float azimuth_offset_deg = 0.0f;
     uint8_t command_mode = CommandMode::CARTESIAN_ACTUATOR;
-    std::array<int, AxisIdx::AXIS_COUNT> cartesian_cmd_idx = { {0, 1, -1, -1, -1, 2} };
-    std::array<int, PolarIdx::POLAR_COUNT> polar_idx = { {0, 1, 2} };
-    int polar_idx[PolarIdx::POLAR_COUNT] = {0, 1, 2};
+    std::array<int16_t, AxisIdx::AXIS_COUNT> cartesian_cmd_idx = { {0, 1, -1, -1, -1, 2} };
+    std::array<int16_t, PolarIdx::POLAR_COUNT> polar_idx = { {0, 1, 2} };
 
     float max_speed_rpm = 1000.0f;
     float max_elevation_deg = 15.0f;
@@ -75,7 +76,8 @@ private:
     template <typename Store> void RegisterParameters(Store &store) {
       DRONECAN_PARAMETER(ROT_CMD_MODE, command_mode, 1, 0, 2);
       DRONECAN_PARAMETER(ROT_DIR, rot_dir, 1, -1, 1);
-      DRONECAN_PARAMETER(THR_DIR, thrust_dir, -1, -1, 1);
+      DRONECAN_PARAMETER(ROT_THR_DIR, thrust_dir, -1, -1, 1);
+      DRONECAN_PARAMETER(ROT_AZM_OFF, azimuth_offset_deg, 0.0f, -360.0f, 360.0f);
 
       DRONECAN_PARAMETER(DC_X_IDX, cartesian_cmd_idx[X_POS], 0, -1, 255);
       DRONECAN_PARAMETER(DC_Y_IDX, cartesian_cmd_idx[Y_POS], 1, -1, 255);
@@ -97,6 +99,12 @@ private:
     }
 
     template <typename Archive> void Serialize(Archive *a) {
+      a->Visit(MJ_NVP(rot_dir));
+      a->Visit(MJ_NVP(thrust_dir));
+      a->Visit(MJ_NVP(azimuth_offset_deg));
+      a->Visit(MJ_NVP(command_mode));
+      a->Visit(MJ_NVP(cartesian_cmd_idx));
+      a->Visit(MJ_NVP(polar_idx));
       a->Visit(MJ_NVP(max_speed_rpm));
       a->Visit(MJ_NVP(max_elevation_deg));
       a->Visit(MJ_NVP(max_modulation));

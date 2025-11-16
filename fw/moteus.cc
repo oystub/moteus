@@ -327,6 +327,7 @@ int main(void) {
   dronecan_param_store.Register(dronecan_node.config());
 
   DroneCanRotor dronecan_rotor(&moteus_controller);
+  persistent_config.Register("dronecan_rotor", dronecan_rotor.config(), [](){});
   dronecan_param_store.Register(dronecan_rotor.config());
   dronecan_node.attachRotor(&dronecan_rotor);
 
